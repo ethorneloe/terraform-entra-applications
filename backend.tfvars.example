@@ -1,0 +1,11 @@
+# Backend Configuration Example
+# Copy this file to backend.tfvars and update with your Azure Storage details
+# Then initialize with: terraform init -backend-config=backend.tfvars
+
+resource_group_name  = "terraform-state-rg"
+storage_account_name = "tfstatexxxxxx"
+container_name       = "tfstate"
+key                  = "entra-applications.tfstate"
+
+# Optional: Configure state locking
+# use_azuread_auth = true
