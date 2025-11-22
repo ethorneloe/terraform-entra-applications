@@ -31,6 +31,14 @@ A comprehensive Terraform module for managing Single Sign-On (SSO) applications 
 ├── app_spa_example.tf              # Example: Single Page Application
 ├── app_daemon_service.tf           # Example: Daemon/background service
 ├── app_workload_identity.tf        # Example: Workload identity federation
+├── .github/
+│   └── workflows/                  # GitHub Actions CI/CD workflows
+│       ├── trigger-terraform-orchestration.yml
+│       ├── terraform-orchestration.yml
+│       ├── terraform-analyze-and-plan.yml
+│       ├── terraform-apply.yml
+│       ├── ci-module-test.yml
+│       └── README.md               # Workflow documentation
 ├── modules/
 │   └── sso-application/            # Reusable SSO application module
 │       ├── main.tf
@@ -38,12 +46,41 @@ A comprehensive Terraform module for managing Single Sign-On (SSO) applications 
 │       └── outputs.tf
 └── env/
     ├── dev/
-    │   └── dev.tfvars              # Development environment variables
+    │   ├── dev.tfvars              # Development environment variables
+    │   └── dev.tfbackend.example   # Backend configuration example
     ├── test/
-    │   └── test.tfvars             # Test environment variables
+    │   ├── test.tfvars             # Test environment variables
+    │   └── test.tfbackend.example  # Backend configuration example
     └── prod/
-        └── prod.tfvars             # Production environment variables
+        ├── prod.tfvars             # Production environment variables
+        └── prod.tfbackend.example  # Backend configuration example
 ```
+
+## GitHub Actions CI/CD
+
+This repository includes comprehensive GitHub Actions workflows for automating Terraform operations:
+
+### Automated Deployments
+- **Dev Environment**: Auto-deploys on push to feature branches
+- **Test Environment**: Deploys on pull requests to main (with approval)
+- **Prod Environment**: Deploys on merge to main (with approval)
+
+### Workflow Features
+- ✅ OIDC authentication (no long-lived credentials)
+- ✅ Automated Terraform plan generation
+- ✅ PR comments with plan output
+- ✅ Environment protection rules
+- ✅ Manual approval gates for test/prod
+- ✅ Automated module testing
+- ✅ State management in Azure Storage
+
+### Quick Setup
+1. Create Azure service principal with federated credentials
+2. Configure GitHub secrets: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`
+3. Set up GitHub environments (dev, test, prod)
+4. Create backend configuration files from examples
+
+See [.github/workflows/README.md](.github/workflows/README.md) for detailed setup instructions.
 
 ## Prerequisites
 
