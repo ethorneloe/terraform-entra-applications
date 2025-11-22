@@ -1,0 +1,288 @@
+name: CI Module Test
+
+on:
+  push:
+    branches-ignore:
+      - main
+    paths:
+      - 'modules/sso-application/**'
+      - '.github/workflows/ci-module-test.yml'
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+env:
+  TF_VERSION: "1.9"
+  ARM_USE_OIDC: true
+  ARM_USE_AZUREAD: true
+
+jobs:
+  test-module:
+    name: Test SSO Application Module
+    runs-on: ubuntu-latest
+    environment: dev
+
+    env:
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Create Test Configuration
+        run: |
+          mkdir -p ci-test
+          cat > ci-test/main.tf <<'EOF'
+          terraform {
+            required_version = "~> 1.9"
+            required_providers {
+              azuread = {
+                source  = "hashicorp/azuread"
+                version = ">= 2.47.0"
+              }
+              azurerm = {
+                source  = "hashicorp/azurerm"
+                version = ">= 4.4.0"
+              }
+            }
+            backend "azurerm" {}
+          }
+
+          provider "azuread" {}
+
+          provider "azurerm" {
+            features {}
+            resource_provider_registrations = "none"
+          }
+
+          data "azuread_client_config" "current" {}
+
+          module "test_app" {
+            source = "../modules/sso-application"
+
+            display_name     = "CI Test App - ${formatdate("YYYYMMDD-hhmm", timestamp())}"
+            description      = "Automated CI test application - safe to delete"
+            sign_in_audience = "AzureADMyOrg"
+
+            tags = ["CI-Test", "Automated", "Temporary"]
+
+            # Simple SPA configuration for testing
+            spa_redirect_uris = [
+              "http://localhost:3000",
+              "https://citest.example.com"
+            ]
+
+            # Basic Microsoft Graph permissions
+            required_resource_access = [
+              {
+                resource_app_id = "00000003-0000-0000-c000-000000000000"
+                resource_access = [
+                  {
+                    id   = "e1fe6dd8-ba31-4d61-89e7-88639da4683d"
+                    type = "Scope"
+                  }
+                ]
+              }
+            ]
+
+            # No client secret needed for SPA
+            create_client_secret = false
+          }
+
+          output "application_id" {
+            value = module.test_app.application_id
+          }
+
+          output "service_principal_id" {
+            value = module.test_app.service_principal_id
+          }
+
+          output "display_name" {
+            value = module.test_app.display_name
+          }
+          EOF
+
+      - name: Terraform Init
+        working-directory: ci-test
+        run: |
+          terraform init \
+            -input=false \
+            -backend-config=../env/dev/dev.tfbackend
+
+      - name: Terraform Validate
+        working-directory: ci-test
+        run: terraform validate
+
+      - name: Terraform Plan
+        working-directory: ci-test
+        run: |
+          terraform plan \
+            -input=false \
+            -out=ci-test.tfplan
+
+      - name: Terraform Apply
+        id: apply
+        working-directory: ci-test
+        run: |
+          terraform apply -input=false -auto-approve ci-test.tfplan
+          echo "apply_status=success" >> $GITHUB_OUTPUT
+
+      - name: Capture Terraform Outputs
+        id: outputs
+        if: steps.apply.outcome == 'success'
+        working-directory: ci-test
+        run: |
+          APP_ID=$(terraform output -raw application_id)
+          SP_ID=$(terraform output -raw service_principal_id)
+          DISPLAY_NAME=$(terraform output -raw display_name)
+
+          echo "app_id=$APP_ID" >> $GITHUB_OUTPUT
+          echo "sp_id=$SP_ID" >> $GITHUB_OUTPUT
+          echo "display_name=$DISPLAY_NAME" >> $GITHUB_OUTPUT
+
+          echo "Application ID: $APP_ID"
+          echo "Service Principal ID: $SP_ID"
+          echo "Display Name: $DISPLAY_NAME"
+
+      - name: Verify Application Creation
+        id: verify
+        if: steps.apply.outcome == 'success'
+        run: |
+          # Verify the application exists in Entra ID using Azure CLI
+          APP_ID="${{ steps.outputs.outputs.app_id }}"
+
+          echo "Verifying application $APP_ID exists in Entra ID..."
+
+          APP_INFO=$(az ad app show --id "$APP_ID" 2>&1) || {
+            echo "Failed to retrieve application from Entra ID"
+            exit 1
+          }
+
+          echo "✅ Application successfully verified in Entra ID"
+          echo "verify_status=success" >> $GITHUB_OUTPUT
+
+      - name: Post Test Results to PR
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const applySuccess = '${{ steps.apply.outcome }}' === 'success';
+            const verifySuccess = '${{ steps.verify.outcome }}' === 'success';
+
+            let emoji = '';
+            let status = '';
+
+            if (applySuccess && verifySuccess) {
+              emoji = '✅';
+              status = 'PASSED';
+            } else if (!applySuccess) {
+              emoji = '❌';
+              status = 'FAILED (Deploy)';
+            } else {
+              emoji = '❌';
+              status = 'FAILED (Verification)';
+            }
+
+            const output = `#### ${emoji} CI Module Test: ${status}
+
+            **Test Summary:**
+            - Module Deployment: ${applySuccess ? '✅ Success' : '❌ Failed'}
+            - Application Verification: ${verifySuccess ? '✅ Success' : '❌ Failed'}
+
+            **Test Details:**
+            - Module: \`sso-application\`
+            - Test Application: \`${{ steps.outputs.outputs.display_name }}\`
+            - Environment: \`dev\`
+
+            <details><summary>Test Configuration</summary>
+
+            - Application ID: \`${{ steps.outputs.outputs.app_id }}\`
+            - Service Principal ID: \`${{ steps.outputs.outputs.sp_id }}\`
+            - Application Type: SPA (Single Page Application)
+            - Authentication: PKCE Flow
+
+            </details>
+
+            *Pusher: @${{ github.actor }}, Workflow: CI Module Test*`;
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const botComment = comments.find(comment => {
+              return comment.user.type === 'Bot' && comment.body.includes('CI Module Test:')
+            });
+
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: output
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: output
+              });
+            }
+
+      - name: Terraform Destroy
+        if: always() && steps.apply.outcome == 'success'
+        working-directory: ci-test
+        run: |
+          echo "Destroying test application..."
+          terraform destroy \
+            -input=false \
+            -auto-approve || echo "Destroy failed, but continuing..."
+
+      - name: Cleanup on Failure
+        if: failure() && steps.apply.outcome == 'success'
+        working-directory: ci-test
+        run: |
+          echo "Test failed, attempting to destroy resources..."
+          terraform destroy \
+            -input=false \
+            -auto-approve || echo "Destroy failed"
+
+      - name: Test Summary
+        if: always()
+        run: |
+          echo "=== CI Module Test Summary ==="
+          echo "Apply Status: ${{ steps.apply.outcome }}"
+          echo "Verify Status: ${{ steps.verify.outcome }}"
+
+          if [[ "${{ steps.apply.outcome }}" == "success" && "${{ steps.verify.outcome }}" == "success" ]]; then
+            echo "✅ All tests passed!"
+            exit 0
+          else
+            echo "❌ Tests failed!"
+            exit 1
+          fi

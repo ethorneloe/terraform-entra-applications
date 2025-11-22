@@ -1,0 +1,10 @@
+# Development Environment - Terraform Backend Configuration
+# Copy this file to dev.tfbackend and update with your Azure Storage details
+
+resource_group_name  = "terraform-state-rg"
+storage_account_name = "tfstatexxxxxx"
+container_name       = "tfstate"
+key                  = "entra-applications-dev.tfstate"
+
+# Optional: Enable Azure AD authentication for backend
+use_azuread_auth = true

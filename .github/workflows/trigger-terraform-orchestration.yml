@@ -1,0 +1,89 @@
+# Purpose:
+#   - To orchestrate code analysis, Terraform plan, and optional apply steps for Entra ID SSO applications in a single workflow across multiple environments.
+#   - To allow for multiple backends and variable files to be used across different environments based on the repo directory structure.
+#   - To provide a single entry point for triggering Terraform orchestration across different environments for different events (push, pull request, workflow dispatch).
+#
+# Prerequisites:
+#   - This workflow calls the terraform-orchestration.yml workflow which in turn orchestrates the analysis, planning, and optional apply steps.
+#     Make sure all the requirements of this workflow and other child workflows are configured correctly.
+#   - Make sure to set your working directory, backend and variable files as needed.
+#   - Required GitHub Secrets:
+#     - AZURE_CLIENT_ID: Service principal client ID with Entra ID permissions
+#     - AZURE_SUBSCRIPTION_ID: Azure subscription ID for backend storage
+#     - AZURE_TENANT_ID: Entra ID tenant ID
+#   - Required Entra ID Permissions for the service principal:
+#     - Application.ReadWrite.All
+#     - AppRoleAssignment.ReadWrite.All (for admin consent)
+#     - Directory.ReadWrite.All (optional, for advanced scenarios)
+#
+# Notes:
+#   - Expressions are not supported when using the "with" section for reusable workflows.
+#   - The workflow uses different environments and settings for dev, test, and prod.
+
+name: Trigger Terraform Orchestration
+
+permissions:
+  id-token: write        # Needed for OIDC authentication
+  contents: read         # Needed for the checkout action
+  actions: read          # Needed for the upload-sarif action
+  security-events: write # Needed for the upload-sarif action
+
+on:
+  push:
+    paths:
+      - '*.tf'
+      - 'modules/**/*.tf'
+      - 'env/**/*.tfvars'
+      - 'env/**/*.tfbackend'
+  pull_request:
+    paths:
+      - '*.tf'
+      - 'modules/**/*.tf'
+      - 'env/**/*.tfvars'
+      - 'env/**/*.tfbackend'
+    types:
+      - opened
+      - reopened
+      - synchronize
+    branches:
+      - main
+
+jobs:
+  dev:
+    if: github.ref != 'refs/heads/main' && github.event_name == 'push'
+    uses: ./.github/workflows/terraform-orchestration.yml
+    secrets: inherit
+    concurrency: dev_entra_apps
+    with:
+      environment: "dev"
+      run_tf_apply: true
+      working_directory: .
+      tfbackend_filepath: ./env/dev/dev.tfbackend
+      tfvars_filepath: ./env/dev/dev.tfvars
+      enable_security_analysis: false
+
+  test:
+    if: github.event_name == 'pull_request'
+    uses: ./.github/workflows/terraform-orchestration.yml
+    secrets: inherit
+    concurrency: test_entra_apps
+    with:
+      environment: "test"
+      run_tf_apply: true
+      working_directory: .
+      tfbackend_filepath: ./env/test/test.tfbackend
+      tfvars_filepath: ./env/test/test.tfvars
+      enable_security_analysis: true
+
+  prod:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    uses: ./.github/workflows/terraform-orchestration.yml
+    secrets: inherit
+    concurrency: prod_entra_apps
+    with:
+      environment: "prod"
+      run_tf_apply: true
+      working_directory: .
+      tfbackend_filepath: ./env/prod/prod.tfbackend
+      tfvars_filepath: ./env/prod/prod.tfvars
+      enable_security_analysis: true
