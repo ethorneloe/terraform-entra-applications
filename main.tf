@@ -4,9 +4,12 @@
 # Data source for current Entra ID client configuration
 data "azuread_client_config" "current" {}
 
+# Data source for well-known application IDs (including Microsoft Graph)
+data "azuread_application_published_app_ids" "well_known" {}
+
 # Data source for Microsoft Graph service principal
 data "azuread_service_principal" "microsoft_graph" {
-  client_id = "00000003-0000-0000-c000-000000000000"
+  client_id = data.azuread_application_published_app_ids.well_known.result["MicrosoftGraph"]
 }
 
 # Local values used across all SSO application configurations

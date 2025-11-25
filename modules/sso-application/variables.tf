@@ -28,6 +28,12 @@ variable "prevent_duplicate_names" {
   default     = true
 }
 
+variable "prevent_destroy" {
+  description = "Prevent accidental destruction of the application and service principal. Set to true for production."
+  type        = bool
+  default     = false
+}
+
 variable "app_owners" {
   description = "List of user object IDs to set as application owners"
   type        = list(string)
@@ -46,11 +52,48 @@ variable "service_principal_tags" {
   default     = []
 }
 
+variable "enterprise_app" {
+  description = "Whether this is an enterprise application (appears in My Apps)"
+  type        = bool
+  default     = true
+}
+
+variable "gallery_app" {
+  description = "Whether this is a gallery application"
+  type        = bool
+  default     = false
+}
+
+variable "hide_app" {
+  description = "Whether to hide this application from user portals"
+  type        = bool
+  default     = false
+}
+
+variable "notes" {
+  description = "Notes/description visible in the Azure portal"
+  type        = string
+  default     = null
+}
+
+variable "service_management_reference" {
+  description = "Reference to service management system (e.g., ServiceNow ticket)"
+  type        = string
+  default     = null
+}
+
 # Application URIs
 variable "identifier_uris" {
   description = "A list of user-defined URI(s) that uniquely identify the application"
   type        = list(string)
   default     = null
+
+  validation {
+    condition = var.identifier_uris == null || alltrue([
+      for uri in var.identifier_uris : can(regex("^(api://|https://)", uri))
+    ])
+    error_message = "All identifier URIs must start with 'api://' or 'https://'"
+  }
 }
 
 # Web application configuration
@@ -219,50 +262,12 @@ variable "saml_single_sign_on" {
   default = null
 }
 
-# Client secret configuration
-variable "create_client_secret" {
-  description = "Whether to create a client secret for the application"
-  type        = bool
-  default     = true
-}
-
-variable "client_secret_display_name" {
-  description = "Display name for the client secret"
-  type        = string
-  default     = "Terraform Managed Secret"
-}
-
-variable "password_rotation_days" {
-  description = "Number of days before the client secret expires"
-  type        = number
-  default     = 180
-}
-
-variable "rotate_secret_when_changed" {
-  description = "Map of values that will trigger secret rotation when changed"
-  type        = map(string)
-  default     = {}
-}
-
-# Certificate configuration
-variable "certificate_value" {
-  description = "The certificate value (PEM format)"
-  type        = string
-  default     = null
-  sensitive   = true
-}
-
-variable "certificate_type" {
-  description = "The certificate type (AsymmetricX509Cert or Symmetric)"
-  type        = string
-  default     = "AsymmetricX509Cert"
-}
-
-variable "certificate_end_date" {
-  description = "The end date until which the certificate is valid (RFC3339 format)"
-  type        = string
-  default     = null
-}
+# NOTE: Client secret and certificate variables have been intentionally removed.
+# Secrets and certificates should NOT be managed by Terraform for security reasons:
+# - Secrets stored in state files are a security risk
+# - Prefer Workload Identity Federation (see federated_identity_credentials variable)
+# - For legacy applications requiring secrets, manage them manually via Azure Portal/CLI
+# - Store secrets in Azure Key Vault, not in Terraform state
 
 # Admin consent configuration
 variable "enable_admin_consent" {
@@ -304,4 +309,13 @@ variable "federated_identity_credentials" {
     subject      = string
   }))
   default = null
+
+  validation {
+    condition = var.federated_identity_credentials == null || alltrue([
+      for cred in var.federated_identity_credentials :
+      cred.issuer != "https://token.actions.githubusercontent.com" ||
+      can(regex("^repo:[^:]+/[^:]+:(ref:refs/|environment:|pull_request|job_workflow_ref:)", cred.subject))
+    ])
+    error_message = "GitHub Actions subject must match pattern: repo:owner/repo:ref:refs/... or repo:owner/repo:environment:... or repo:owner/repo:pull_request or repo:owner/repo:job_workflow_ref:..."
+  }
 }

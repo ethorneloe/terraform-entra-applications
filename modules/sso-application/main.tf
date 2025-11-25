@@ -2,6 +2,17 @@
 # This module creates an Entra ID application registration with service principal,
 # API permissions, and optional admin consent
 
+# Validation: Ensure only one client type is configured
+locals {
+  client_type_count = (
+    (var.web_redirect_uris != null && length(var.web_redirect_uris) > 0 ? 1 : 0) +
+    (var.spa_redirect_uris != null && length(var.spa_redirect_uris) > 0 ? 1 : 0) +
+    (var.public_client_redirect_uris != null && length(var.public_client_redirect_uris) > 0 ? 1 : 0)
+  )
+
+  validate_client_type = local.client_type_count <= 1 ? true : tobool("ERROR: Only one client type (web, spa, or public_client) should have redirect URIs configured")
+}
+
 # Create or reference existing application registration
 resource "azuread_application" "app" {
   display_name            = var.display_name
@@ -141,7 +152,19 @@ resource "azuread_application" "app" {
   # Group membership claims
   group_membership_claims = var.group_membership_claims
 
+  notes                        = var.notes
+  service_management_reference = var.service_management_reference
+
   tags = var.tags
+
+  lifecycle {
+    prevent_destroy = var.prevent_destroy
+
+    # Ignore changes to optional_claims as they may be modified outside Terraform
+    ignore_changes = [
+      optional_claims,
+    ]
+  }
 }
 
 # Create service principal for the application
@@ -150,6 +173,12 @@ resource "azuread_service_principal" "app_sp" {
   app_role_assignment_required = var.app_role_assignment_required
   owners                       = var.app_owners
   use_existing                 = var.use_existing_service_principal
+
+  feature_tags {
+    enterprise = var.enterprise_app
+    gallery    = var.gallery_app
+    hide       = var.hide_app
+  }
 
   # SAML SSO configuration
   dynamic "saml_single_sign_on" {
@@ -166,16 +195,24 @@ resource "azuread_service_principal" "app_sp" {
   preferred_single_sign_on_mode = var.preferred_single_sign_on_mode
 
   tags = concat(var.tags, var.service_principal_tags)
+
+  lifecycle {
+    prevent_destroy = var.prevent_destroy
+  }
 }
 
-# Create application password/secret
-resource "azuread_application_password" "app_password" {
-  count                 = var.create_client_secret ? 1 : 0
-  application_id        = azuread_application.app.id
-  display_name          = var.client_secret_display_name
-  end_date_relative     = "${var.password_rotation_days * 24}h"
-  rotate_when_changed   = var.rotate_secret_when_changed
-}
+# NOTE: Client secrets are intentionally NOT managed by Terraform for security reasons:
+# - Secrets would be stored in plain text in the state file
+# - Operations would be attributed to the service principal instead of the actual operator
+# - Secret rotation schedules are security-driven, not infrastructure-driven
+# - Emergency rotation shouldn't depend on Terraform pipelines
+# - Many compliance frameworks require separation of credential management
+#
+# Recommended approaches for credential management:
+# 1. Use Workload Identity Federation (preferred - no secrets needed)
+# 2. Create secrets manually via Entra Admin Center or Azure CLI:
+#    az ad app credential reset --id <app-id> --append
+# 3. Store secrets in Azure Key Vault and reference them in applications
 
 # Admin consent for application permissions
 resource "azuread_service_principal_delegated_permission_grant" "admin_consent" {
@@ -193,14 +230,15 @@ resource "azuread_app_role_assignment" "app_role_assignment" {
   resource_object_id  = each.value.resource_object_id
 }
 
-# Certificate-based authentication
-resource "azuread_application_certificate" "app_cert" {
-  count          = var.certificate_value != null ? 1 : 0
-  application_id = azuread_application.app.id
-  type           = var.certificate_type
-  value          = var.certificate_value
-  end_date       = var.certificate_end_date
-}
+# NOTE: Certificates are intentionally NOT managed by Terraform for security reasons:
+# - Certificate private keys should never be in Terraform state
+# - Certificate management should be handled by Azure Key Vault with auto-rotation
+# - For production use cases, prefer Workload Identity Federation over certificates
+#
+# If certificates are required, manage them via:
+# 1. Azure Key Vault with automatic rotation
+# 2. Manual upload via Entra Admin Center
+# 3. Azure CLI: az ad app credential reset --id <app-id> --cert @cert.pem
 
 # Federation configuration for external identity providers
 resource "azuread_application_federated_identity_credential" "federated_cred" {

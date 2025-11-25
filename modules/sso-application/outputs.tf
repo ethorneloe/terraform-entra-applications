@@ -37,33 +37,9 @@ output "service_principal_display_name" {
   value       = azuread_service_principal.app_sp.display_name
 }
 
-# Client secret outputs
-output "client_secret" {
-  description = "The client secret value (sensitive)"
-  value       = try(azuread_application_password.app_password[0].value, null)
-  sensitive   = true
-}
-
-output "client_secret_key_id" {
-  description = "The key ID of the client secret"
-  value       = try(azuread_application_password.app_password[0].key_id, null)
-}
-
-output "client_secret_end_date" {
-  description = "The end date of the client secret"
-  value       = try(azuread_application_password.app_password[0].end_date, null)
-}
-
-# Certificate outputs
-output "certificate_key_id" {
-  description = "The key ID of the certificate"
-  value       = try(azuread_application_certificate.app_cert[0].key_id, null)
-}
-
-output "certificate_thumbprint" {
-  description = "The thumbprint of the certificate"
-  value       = try(azuread_application_certificate.app_cert[0].thumbprint, null)
-}
+# NOTE: Client secrets and certificates are NOT managed by Terraform for security reasons.
+# Secrets should be created manually via Azure Portal or CLI and stored in Azure Key Vault.
+# Use Workload Identity Federation (federated_identity_credentials) whenever possible to eliminate secrets entirely.
 
 # API permissions outputs
 output "oauth2_permission_scope_ids" {

@@ -6,18 +6,19 @@ A comprehensive Terraform module for managing Single Sign-On (SSO) applications 
 - Marketplace/gallery applications
 - Service principals
 - API permissions and consent management
-- Authentication methods (client secrets, certificates, federated credentials)
-- Workload identity federation for GitHub Actions and Kubernetes
+- Workload identity federation for GitHub Actions and Kubernetes (passwordless authentication)
 
 ## Features
 
 - **Modular Design**: Reusable module for consistent application configuration
-- **Multiple Authentication Methods**: Support for client secrets, certificates, and federated credentials
+- **Workload Identity Federation**: Native support for passwordless authentication with GitHub Actions and AKS (recommended)
 - **API Permissions Management**: Simplified configuration of Microsoft Graph and custom API permissions
 - **Admin Consent Automation**: Built-in support for delegated permission consent
 - **Environment Separation**: Separate configurations for dev, test, and production
-- **Workload Identity**: Native support for passwordless authentication with GitHub Actions and AKS
+- **Security-First**: Client secrets and certificates are managed outside Terraform for enhanced security
 - **Best Practices**: Follows Entra ID security and governance best practices
+- **Lifecycle Management**: Prevents accidental destruction of production applications
+- **Input Validation**: Comprehensive validation of configuration values
 
 ## Repository Structure
 
@@ -110,6 +111,91 @@ terraform plan -var-file=env/dev/dev.tfvars.local
 terraform apply -var-file=env/dev/dev.tfvars.local
 ```
 
+## Credential Management
+
+**IMPORTANT:** This module intentionally does NOT manage client secrets or certificates within Terraform.
+
+### Why Secrets Aren't Managed by Terraform
+
+Managing secrets in Terraform creates significant security risks:
+- **State File Exposure**: Secrets are stored in plain text in Terraform state files
+- **Audit Trail Gaps**: Operations are attributed to the service principal, not the actual operator
+- **Operational Mismatch**: Secret rotation schedules should be security-driven, not infrastructure-driven
+- **Break-Glass Limitations**: Emergency rotation shouldn't depend on Terraform pipelines
+- **Compliance Issues**: Many frameworks require separation of credential management
+
+### Recommended Approaches
+
+#### 1. Workload Identity Federation (Preferred)
+
+Use federated credentials to eliminate secrets entirely:
+
+```hcl
+module "my_app" {
+  source = "./modules/sso-application"
+
+  display_name = "My Application"
+
+  federated_identity_credentials = [
+    {
+      display_name = "GitHub Actions - Main"
+      description  = "For CI/CD pipeline"
+      audiences    = ["api://AzureADTokenExchange"]
+      issuer       = "https://token.actions.githubusercontent.com"
+      subject      = "repo:owner/repo:ref:refs/heads/main"
+    }
+  ]
+}
+```
+
+#### 2. Manual Secret Management (When Required)
+
+For legacy applications that require secrets:
+
+**Create the application with Terraform:**
+```bash
+terraform apply -var-file=env/dev/dev.tfvars.local
+```
+
+**Add secrets manually:**
+```bash
+# Via Azure CLI
+az ad app credential reset --id <application-id> --append
+
+# Via Azure Portal
+# Navigate to: Entra ID > App registrations > Your App > Certificates & secrets
+```
+
+**Store secrets securely:**
+- Production: Use Azure Key Vault with RBAC
+- Development: Use environment variables (never commit to git)
+
+#### 3. Certificate-Based Authentication
+
+For applications requiring certificates, use Azure Key Vault:
+- Store certificates in Azure Key Vault
+- Enable automatic rotation
+- Reference from Key Vault in your applications
+
+### Credentials in GitHub Actions
+
+Example using federated credentials (no secrets needed):
+
+```yaml
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+```
+
 ## Usage Examples
 
 ### Web API Application
@@ -142,8 +228,8 @@ module "my_web_api" {
     }
   ]
 
-  create_client_secret   = true
-  password_rotation_days = 180
+  # Note: Client secrets should be created manually after Terraform creates the application
+  # See "Credential Management" section for details
 }
 ```
 
@@ -156,6 +242,7 @@ module "my_spa" {
   source = "./modules/sso-application"
 
   display_name = "My SPA - ${var.environment}"
+  description  = "Single Page Application using PKCE authentication"
 
   spa_redirect_uris = [
     "http://localhost:3000",
@@ -174,7 +261,7 @@ module "my_spa" {
     }
   ]
 
-  create_client_secret = false # SPAs use PKCE, no secret needed
+  # SPAs use PKCE flow - no client secrets needed
 }
 ```
 
@@ -187,6 +274,7 @@ module "my_service" {
   source = "./modules/sso-application"
 
   display_name     = "My Background Service - ${var.environment}"
+  description      = "Daemon application with application permissions"
   sign_in_audience = "AzureADMyOrg"
 
   required_resource_access = [
@@ -201,11 +289,9 @@ module "my_service" {
     }
   ]
 
-  create_client_secret   = true
-  password_rotation_days = 180
-
-  # For enhanced security, use certificate authentication
-  # certificate_value = file("path/to/certificate.pem")
+  # Note: For daemon apps, consider using Workload Identity Federation instead of secrets
+  # If secrets are required, create them manually after Terraform deployment
+  # For certificate authentication, upload certificates via Azure Key Vault
 }
 ```
 
@@ -218,9 +304,9 @@ module "github_actions" {
   source = "./modules/sso-application"
 
   display_name = "GitHub Actions - ${var.environment}"
+  description  = "Passwordless authentication for GitHub Actions workflows"
 
-  create_client_secret = false # No secret needed
-
+  # Workload Identity Federation - No secrets needed!
   federated_identity_credentials = [
     {
       display_name = "GitHub Actions - Main Branch"
@@ -228,6 +314,13 @@ module "github_actions" {
       audiences    = ["api://AzureADTokenExchange"]
       issuer       = "https://token.actions.githubusercontent.com"
       subject      = "repo:my-org/my-repo:ref:refs/heads/main"
+    },
+    {
+      display_name = "GitHub Actions - Production Environment"
+      description  = "Federated credential for production deployments"
+      audiences    = ["api://AzureADTokenExchange"]
+      issuer       = "https://token.actions.githubusercontent.com"
+      subject      = "repo:my-org/my-repo:environment:production"
     }
   ]
 
@@ -312,26 +405,32 @@ After applying, Terraform will output important application details:
 # View all outputs
 terraform output
 
-# View sensitive outputs (like client secrets)
-terraform output -json | jq '.web_api_example_client_secret.value'
+# View specific outputs in JSON format
+terraform output -json | jq '.web_api_example_application_id.value'
 ```
 
 Common outputs:
 - `application_id`: Application (client) ID for authentication
+- `client_id`: Client ID (same as application_id)
 - `service_principal_id`: Service principal object ID
-- `client_secret`: Client secret (sensitive)
-- `certificate_thumbprint`: Certificate thumbprint (if using cert auth)
+- `service_principal_object_id`: Service principal object ID for role assignments
+- `oauth2_permission_scope_ids`: Map of OAuth2 permission scope values to IDs
+- `app_role_ids`: Map of app role values to IDs
+
+**Note:** Client secrets and certificates are NOT included in outputs as they are not managed by Terraform. Create and manage credentials separately via Azure Portal or CLI.
 
 ## Security Best Practices
 
-1. **Use Managed Identities**: Where possible, use Azure Managed Identities instead of service principals
-2. **Certificate Authentication**: Prefer certificates over client secrets for production
-3. **Workload Identity**: Use federated credentials for GitHub Actions and Kubernetes
-4. **Least Privilege**: Only request the minimum required API permissions
-5. **Secret Rotation**: Implement regular secret rotation (default: 180 days)
-6. **Separate Environments**: Use separate app registrations for dev/test/prod
-7. **Monitoring**: Enable sign-in logs and monitor for suspicious activity
-8. **Conditional Access**: Apply conditional access policies to service principals
+1. **Use Workload Identity Federation**: Eliminate secrets entirely by using federated credentials for GitHub Actions, Kubernetes, and other supported platforms
+2. **Use Managed Identities**: Where possible, use Azure Managed Identities instead of service principals for Azure-to-Azure authentication
+3. **Secrets Outside Terraform**: Never manage client secrets or certificates in Terraform - use Azure Key Vault with RBAC
+4. **Least Privilege**: Only request the minimum required API permissions for your application
+5. **Separate Environments**: Use separate app registrations for dev/test/prod with appropriate lifecycle protections
+6. **Lifecycle Protection**: Set `prevent_destroy = true` for production applications to prevent accidental deletion
+7. **Monitoring**: Enable sign-in logs and monitor for suspicious activity using Azure AD logs
+8. **Conditional Access**: Apply conditional access policies to service principals to enforce security requirements
+9. **Regular Reviews**: Periodically review API permissions and remove unused applications
+10. **Audit Trail**: All credential operations should be performed manually to maintain proper audit trails
 
 ## Troubleshooting
 
