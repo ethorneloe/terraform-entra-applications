@@ -11,12 +11,7 @@ resource "azuread_application" "app" {
   owners                  = var.app_owners
 
   # Application ID URI (for API applications)
-  dynamic "identifier_uris" {
-    for_each = var.identifier_uris != null ? [1] : []
-    content {
-      uris = var.identifier_uris
-    }
-  }
+  identifier_uris = var.identifier_uris
 
   # Web application configuration
   dynamic "web" {
