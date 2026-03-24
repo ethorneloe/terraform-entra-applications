@@ -1,0 +1,100 @@
+# Purpose:
+#   - To provide a single entry point that triggers Terraform orchestration for each environment
+#     based on the branch and event type (push vs pull_request).
+#   - To allow multiple backends and variable files across different environments.
+#
+# Environment strategy:
+#   dev   - Triggered by any non-main branch push. Automatically applies.
+#   test  - Triggered by pull requests targeting main. Automatically applies.
+#           Use this to validate changes in an isolated environment before merging.
+#   prod  - Triggered by pushes to main. Automatically applies.
+#           Configure a required reviewer on the "prod" GitHub Environment for an approval gate.
+#
+# Prerequisites:
+#   - Azure federated credentials (OIDC) configured for each GitHub Environment:
+#       AZURE_CLIENT_ID, AZURE_SUBSCRIPTION_ID, AZURE_TENANT_ID
+#   - Backend config files present at the paths below (copy from backend.tfvars.example):
+#       env/dev/dev.tfbackend
+#       env/test/test.tfbackend
+#       env/prod/prod.tfbackend
+#   - GitHub Environments created: dev, test, prod
+#     (Settings > Environments; add required reviewers on prod for approval gating)
+#
+# Notes:
+#   - Expressions are not supported in the "with" section for reusable workflows,
+#     so environment-specific values must be hardcoded per job.
+
+name: Trigger Terraform Orchestration
+
+permissions:
+  id-token: write        # Needed for OIDC authentication
+  contents: read         # Needed for the checkout action
+  actions: read          # Needed for artifact operations
+  security-events: write # Needed for uploading SARIF results
+  pull-requests: write   # Needed to post Terraform plan as PR comment
+
+on:
+  push:
+    paths:
+      - '*.tf'
+      - 'modules/**'
+      - 'env/**'
+      - '.github/workflows/**'
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+    branches:
+      - main
+    paths:
+      - '*.tf'
+      - 'modules/**'
+      - 'env/**'
+      - '.github/workflows/**'
+
+jobs:
+  dev:
+    if: github.ref != 'refs/heads/main' && github.event_name == 'push'
+    uses: ./.github/workflows/terraform-orchestration.yml
+    secrets: inherit
+    concurrency:
+      group: dev_entra
+      cancel-in-progress: false
+    with:
+      environment: "dev"
+      run_tf_apply: true
+      working_directory: "."
+      tfbackend_filepath: ./env/dev/dev.tfbackend
+      tfvars_filepath: ./env/dev/dev.tfvars
+      enable_security_analysis: false
+
+  test:
+    if: github.event_name == 'pull_request'
+    uses: ./.github/workflows/terraform-orchestration.yml
+    secrets: inherit
+    concurrency:
+      group: test_entra
+      cancel-in-progress: false
+    with:
+      environment: "test"
+      run_tf_apply: true
+      working_directory: "."
+      tfbackend_filepath: ./env/test/test.tfbackend
+      tfvars_filepath: ./env/test/test.tfvars
+      enable_security_analysis: true
+
+  prod:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    uses: ./.github/workflows/terraform-orchestration.yml
+    secrets: inherit
+    concurrency:
+      group: prod_entra
+      cancel-in-progress: false
+    with:
+      environment: "prod"
+      run_tf_apply: true
+      working_directory: "."
+      tfbackend_filepath: ./env/prod/prod.tfbackend
+      tfvars_filepath: ./env/prod/prod.tfvars
+      enable_security_analysis: true

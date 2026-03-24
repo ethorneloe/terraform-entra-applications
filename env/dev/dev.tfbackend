@@ -1,0 +1,10 @@
+# Development environment backend configuration
+# Copy this file and fill in your values.
+# Do NOT commit real values - reference secrets or use a local override file.
+#
+# Used by: terraform init -backend-config=./env/dev/dev.tfbackend
+
+resource_group_name  = "terraform-state-rg"
+storage_account_name = "tfstatexxxxxxxx"
+container_name       = "tfstate"
+key                  = "entra-applications-dev.tfstate"
