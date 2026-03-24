@@ -96,7 +96,7 @@ cp env/dev/dev.tfvars env/dev/dev.tfvars.local
 ```
 
 Key variables to configure:
-- `tenant_domain`: Your Entra ID tenant domain
+- `tenant_domain`: Your Entra ID tenant domain — **must not be left as the placeholder `yourcompany.onmicrosoft.com`**; Terraform will refuse to apply with that value
 - `app_owners`: List of user object IDs or UPNs who will own the applications
 - `enable_admin_consent`: Whether to automatically grant admin consent
 
@@ -204,6 +204,14 @@ module "my_service" {
   create_client_secret   = true
   password_rotation_days = 180
 
+  # Grant admin consent for application permissions via app_role_assignments
+  app_role_assignments = {
+    "msgraph-user-read-all" = {
+      app_role_id        = "df021288-bdef-4463-88db-98f22de89214" # User.Read.All
+      resource_object_id = local.microsoft_graph_sp_object_id
+    }
+  }
+
   # For enhanced security, use certificate authentication
   # certificate_value = file("path/to/certificate.pem")
 }
@@ -273,36 +281,40 @@ For a complete list, see [Microsoft Graph permissions reference](https://learn.m
 
 ## Admin Consent
 
-### Delegated Permissions
+### Delegated Permissions (type = "Scope")
 
-Delegated permissions can be granted automatically via the module:
+Delegated permissions are granted via `enable_admin_consent` + `admin_consent_scope`:
 
 ```hcl
 enable_admin_consent                 = true
 admin_consent_scope                  = ["User.Read", "Mail.Read"]
-resource_service_principal_object_id = data.azuread_service_principal.microsoft_graph.object_id
+resource_service_principal_object_id = local.microsoft_graph_sp_object_id
 ```
 
-### Application Permissions
+`resource_service_principal_object_id` is **required** whenever `enable_admin_consent = true`.
 
-Application permissions require admin consent via the Azure Portal or PowerShell:
+### Application Permissions (type = "Role")
 
-**Via Azure Portal:**
-1. Navigate to Azure Portal > Entra ID > App registrations
-2. Select your application
-3. Go to API permissions
-4. Click "Grant admin consent for [your tenant]"
+Application permissions are granted via `app_role_assignments`. Each entry creates
+an `azuread_app_role_assignment` which is the Terraform-native equivalent of clicking
+"Grant admin consent" in the Azure Portal for Role-type permissions.
 
-**Via PowerShell:**
-```powershell
-Connect-MgGraph -Scopes "Application.ReadWrite.All", "AppRoleAssignment.ReadWrite.All"
-
-# Get the service principal
-$sp = Get-MgServicePrincipal -Filter "displayName eq 'Your App Name'"
-
-# Grant admin consent for application permissions
-# (This requires the specific app role assignment creation)
+```hcl
+app_role_assignments = {
+  # Key is a stable, human-readable identifier — changing the key will recreate the assignment.
+  "msgraph-user-read-all" = {
+    app_role_id        = "df021288-bdef-4463-88db-98f22de89214" # User.Read.All
+    resource_object_id = local.microsoft_graph_sp_object_id
+  }
+  "msgraph-mail-send" = {
+    app_role_id        = "b633e1c5-b582-4048-a93e-9f11b44c7e96" # Mail.Send
+    resource_object_id = local.microsoft_graph_sp_object_id
+  }
+}
 ```
+
+The `app_role_id` must match the GUID listed in `required_resource_access` for the same permission.
+See `app_daemon_service.tf` for a complete working example.
 
 ## Outputs
 

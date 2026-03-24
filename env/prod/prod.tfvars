@@ -12,8 +12,8 @@ app_owners = [
 # Admin consent settings (typically enabled in production after validation)
 enable_admin_consent = true
 
-# Password/secret rotation (longer rotation for production)
-password_rotation_days = 180
+# Password/secret rotation (shorter in production for tighter security)
+password_rotation_days = 90
 
 # Common tags for all applications
 tags = {
