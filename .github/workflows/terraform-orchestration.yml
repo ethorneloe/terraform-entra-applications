@@ -1,0 +1,71 @@
+name: Terraform Orchestration
+
+permissions:
+  id-token: write        # Needed for OIDC authentication
+  contents: read         # Needed for the checkout action
+  actions: read          # Needed for the upload-sarif action
+  security-events: write # Needed for the upload-sarif action
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+      plan_filename:
+        required: false
+        default: "plan.tfplan"
+        type: string
+      working_directory:
+        required: true
+        type: string
+      terraform_version:
+        required: false
+        default: ""
+        type: string
+      enable_security_analysis:
+        description: "Toggle the security analysis step"
+        required: true
+        type: boolean
+      artifact_basename:
+        required: false
+        default: "terraform-plan"
+        type: string
+      run_tf_apply:
+        required: false
+        default: false
+        type: boolean
+      tfbackend_filepath:
+        required: true
+        type: string
+      tfvars_filepath:
+        required: true
+        type: string
+
+jobs:
+   A:
+    uses: ./.github/workflows/terraform-analyze-and-plan.yml
+    secrets: inherit
+    with:
+      environment: ${{ inputs.environment }}
+      plan_filename: ${{ inputs.plan_filename }}
+      working_directory: ${{ inputs.working_directory }}
+      terraform_version: ${{ inputs.terraform_version }}
+      artifact_basename: ${{ inputs.artifact_basename }}
+      tfbackend_filepath: ${{ inputs.tfbackend_filepath }}
+      tfvars_filepath: ${{ inputs.tfvars_filepath }}
+      enable_security_analysis: ${{ inputs.enable_security_analysis }}
+
+   B:
+    if: inputs.run_tf_apply == true
+    needs: A
+    uses: ./.github/workflows/terraform-apply.yml
+    secrets: inherit
+    with:
+      environment: ${{ inputs.environment }}
+      plan_filename: ${{ inputs.plan_filename }}
+      working_directory: ${{ inputs.working_directory }}
+      terraform_version: ${{ inputs.terraform_version }}
+      artifact_basename: ${{ inputs.artifact_basename }}
+      tfbackend_filepath: ${{ inputs.tfbackend_filepath }}
+      tfvars_filepath: ${{ inputs.tfvars_filepath }}

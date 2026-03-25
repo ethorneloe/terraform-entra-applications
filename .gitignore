@@ -16,6 +16,12 @@ crash.*.log
 # Allow example tfvars in env/ directories
 !env/**/*.tfvars
 
+# Exclude backend configuration files (contain Azure Storage details)
+*.tfbackend
+
+# Allow example backend files
+!*.tfbackend.example
+
 # Ignore override files as they are usually used to override resources locally
 override.tf
 override.tf.json
