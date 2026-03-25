@@ -2,8 +2,46 @@
 # This module creates an Entra ID application registration with service principal,
 # API permissions, and optional admin consent
 
-# Validation: Ensure only one client type is configured
+# Pattern-based security defaults
+# When app_pattern is set, these defaults are applied for security best practices
 locals {
+  # Define security defaults for each authentication pattern
+  pattern_defaults = var.app_pattern != null ? {
+    oidc_web = {
+      implicit_grant_enabled     = false # Force authorization code + PKCE
+      sign_in_audience          = "AzureADMyOrg"
+      preferred_sso_mode        = "oidc"
+      app_role_assignment_required = false
+    }
+    oidc_spa = {
+      implicit_grant_enabled     = false # SPAs should use auth code + PKCE
+      sign_in_audience          = "AzureADMyOrg"
+      preferred_sso_mode        = "oidc"
+      app_role_assignment_required = false
+    }
+    daemon = {
+      implicit_grant_enabled     = false # Daemons use client credentials
+      sign_in_audience          = "AzureADMyOrg"
+      preferred_sso_mode        = null
+      app_role_assignment_required = false
+    }
+    saml = {
+      implicit_grant_enabled     = false
+      sign_in_audience          = "AzureADMyOrg"
+      preferred_sso_mode        = "saml"
+      app_role_assignment_required = true # SAML apps typically require assignment
+    }
+  }[var.app_pattern] : null
+
+  # Apply implicit grant settings based on pattern or explicit config
+  implicit_grant_config = var.web_implicit_grant != null ? var.web_implicit_grant : (
+    var.require_pkce || local.pattern_defaults != null ? {
+      access_token_issuance_enabled = false
+      id_token_issuance_enabled     = false
+    } : null
+  )
+
+  # Validation: Ensure only one client type is configured
   client_type_count = (
     (var.web_redirect_uris != null && length(var.web_redirect_uris) > 0 ? 1 : 0) +
     (var.spa_redirect_uris != null && length(var.spa_redirect_uris) > 0 ? 1 : 0) +
@@ -26,12 +64,12 @@ resource "azuread_application" "app" {
 
   # Web application configuration
   dynamic "web" {
-    for_each = var.web_redirect_uris != null || var.web_implicit_grant != null ? [1] : []
+    for_each = var.web_redirect_uris != null || local.implicit_grant_config != null ? [1] : []
     content {
       redirect_uris = var.web_redirect_uris
 
       dynamic "implicit_grant" {
-        for_each = var.web_implicit_grant != null ? [var.web_implicit_grant] : []
+        for_each = local.implicit_grant_config != null ? [local.implicit_grant_config] : []
         content {
           access_token_issuance_enabled = implicit_grant.value.access_token_issuance_enabled
           id_token_issuance_enabled     = implicit_grant.value.id_token_issuance_enabled
@@ -164,10 +202,14 @@ resource "azuread_application" "app" {
 
 # Create service principal for the application
 resource "azuread_service_principal" "app_sp" {
-  client_id                    = azuread_application.app.client_id
-  app_role_assignment_required = var.app_role_assignment_required
-  owners                       = var.app_owners
-  use_existing                 = var.use_existing_service_principal
+  client_id = azuread_application.app.client_id
+  app_role_assignment_required = (
+    local.pattern_defaults != null ?
+    local.pattern_defaults.app_role_assignment_required :
+    var.app_role_assignment_required
+  )
+  owners       = var.app_owners
+  use_existing = var.use_existing_service_principal
 
   feature_tags {
     enterprise = var.enterprise_app
@@ -186,8 +228,12 @@ resource "azuread_service_principal" "app_sp" {
   # Notification email addresses
   notification_email_addresses = var.notification_email_addresses
 
-  # Preferred single sign-on mode
-  preferred_single_sign_on_mode = var.preferred_single_sign_on_mode
+  # Preferred single sign-on mode (use pattern default if available)
+  preferred_single_sign_on_mode = (
+    local.pattern_defaults != null && local.pattern_defaults.preferred_sso_mode != null ?
+    local.pattern_defaults.preferred_sso_mode :
+    var.preferred_single_sign_on_mode
+  )
 
   tags = concat(var.tags, var.service_principal_tags)
 
@@ -245,24 +291,34 @@ resource "azuread_app_role_assignment" "app_role_assignment" {
   resource_object_id  = each.value.resource_object_id
 }
 
-# NOTE: Certificates managed by Terraform have security implications:
-# - Certificate private keys should never be in Terraform state
-# - Certificate management should be handled by Azure Key Vault with auto-rotation
-# - For production use cases, prefer Workload Identity Federation over certificates
+# ═══════════════════════════════════════════════════════════════════════════
+# CERTIFICATE MANAGEMENT
+# ═══════════════════════════════════════════════════════════════════════════
+# Certificates are intentionally NOT managed by Terraform because:
 #
-# If certificates are required, manage them via:
-# 1. Azure Key Vault with automatic rotation
-# 2. Manual upload via Entra Admin Center
-# 3. Azure CLI: az ad app credential reset --id <app-id> --cert @cert.pem
+# 1. SECURITY: Private keys should never be stored in Terraform state
+# 2. COMPLIANCE: Most frameworks require separation of credential management
+# 3. OWNERSHIP: Application owners should manage their own certificates
+# 4. ROTATION: Certificate renewal is security-driven, not infrastructure-driven
+# 5. SCALE: At enterprise scale, centralized cert mgmt creates bottlenecks
 #
-# This resource is provided for convenience but should be used with caution.
-resource "azuread_application_certificate" "app_cert" {
-  count          = var.certificate_value != null ? 1 : 0
-  application_id = azuread_application.app.id
-  type           = var.certificate_type
-  value          = var.certificate_value
-  end_date       = var.certificate_end_date
-}
+# ── Recommended Certificate Management Approaches ──
+#
+# For SAML applications (signing certificates):
+#   1. Azure Portal: Enterprise applications → [Your App] → SAML Signing Certificate
+#   2. Azure CLI: az ad sp create-for-rbac --name <app> --create-cert
+#   3. Let Azure auto-generate certs (default for SAML apps)
+#
+# For client certificates (authentication):
+#   1. Azure Key Vault with automatic rotation
+#   2. Manual upload via Entra Admin Center
+#   3. Azure CLI: az ad app credential reset --id <app-id> --cert @cert.pem
+#
+# For modern apps:
+#   ✅ PREFERRED: Use Workload Identity Federation (no secrets/certs needed!)
+#   See: var.federated_identity_credentials
+#
+# ═══════════════════════════════════════════════════════════════════════════
 
 # Federation configuration for external identity providers
 # Keyed by display_name which must be unique per application; this ensures

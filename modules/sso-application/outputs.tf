@@ -54,16 +54,8 @@ output "client_secret_end_date" {
   value       = try(azuread_application_password.app_password[0].end_date, null)
 }
 
-# Certificate outputs
-output "certificate_key_id" {
-  description = "The key ID of the certificate"
-  value       = try(azuread_application_certificate.app_cert[0].key_id, null)
-}
-
-output "certificate_thumbprint" {
-  description = "The thumbprint of the certificate"
-  value       = try(azuread_application_certificate.app_cert[0].thumbprint, null)
-}
+# NOTE: Certificate outputs removed - certificates are not managed by this module.
+# Certificates should be managed by application owners outside of Terraform.
 
 # API permissions outputs
 output "oauth2_permission_scope_ids" {

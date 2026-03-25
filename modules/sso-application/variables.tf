@@ -1,5 +1,16 @@
 # Variables for SSO Application Module
 
+# Application pattern (recommended for best practices)
+variable "app_pattern" {
+  description = "Application authentication pattern - applies security defaults. Options: oidc_web (web app with PKCE), oidc_spa (single-page app), daemon (service/API with no user interaction), saml (SAML SSO). Set to null for manual configuration."
+  type        = string
+  default     = null
+  validation {
+    condition     = var.app_pattern == null || contains(["oidc_web", "oidc_spa", "daemon", "saml"], var.app_pattern)
+    error_message = "Must be one of: oidc_web, oidc_spa, daemon, saml, or null for manual configuration"
+  }
+}
+
 # Basic application properties
 variable "display_name" {
   description = "The display name for the application"
@@ -79,12 +90,18 @@ variable "web_redirect_uris" {
 }
 
 variable "web_implicit_grant" {
-  description = "Implicit grant settings for web applications"
+  description = "Implicit grant settings for web applications. SECURITY WARNING: Implicit flow is deprecated. Use authorization code flow with PKCE instead."
   type = object({
     access_token_issuance_enabled = bool
     id_token_issuance_enabled     = bool
   })
   default = null
+}
+
+variable "require_pkce" {
+  description = "Enforce PKCE (Proof Key for Code Exchange) for authorization code flow. Recommended for all modern apps. Disables implicit grant flow when true."
+  type        = bool
+  default     = true
 }
 
 # SPA configuration
@@ -280,25 +297,9 @@ variable "rotate_secret_when_changed" {
   default     = {}
 }
 
-# Certificate configuration
-variable "certificate_value" {
-  description = "The certificate value (PEM format)"
-  type        = string
-  default     = null
-  sensitive   = true
-}
-
-variable "certificate_type" {
-  description = "The certificate type (AsymmetricX509Cert or Symmetric)"
-  type        = string
-  default     = "AsymmetricX509Cert"
-}
-
-variable "certificate_end_date" {
-  description = "The end date until which the certificate is valid (RFC3339 format)"
-  type        = string
-  default     = null
-}
+# NOTE: Certificate management is intentionally NOT supported in this module.
+# Certificates should be managed by application owners via Azure Portal, CLI, or Key Vault.
+# For modern authentication, use Workload Identity Federation (federated_identity_credentials) instead.
 
 # Admin consent configuration
 variable "enable_admin_consent" {
