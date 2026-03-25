@@ -13,7 +13,7 @@ output "application_object_id" {
 
 output "application_id_uri" {
   description = "The Application ID URI"
-  value       = try(tolist(azuread_application.app.identifier_uris)[0], null)
+  value       = try(azuread_application.app.identifier_uris[0], null)
 }
 
 output "display_name" {

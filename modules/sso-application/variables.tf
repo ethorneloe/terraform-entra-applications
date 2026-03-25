@@ -46,6 +46,24 @@ variable "service_principal_tags" {
   default     = []
 }
 
+variable "notes" {
+  description = "Notes/description visible in the Azure portal"
+  type        = string
+  default     = null
+}
+
+variable "service_management_reference" {
+  description = "Reference to a service or asset management database"
+  type        = string
+  default     = null
+}
+
+variable "prevent_destroy" {
+  description = "Prevent accidental destruction of the application and service principal. Set to true for production."
+  type        = bool
+  default     = false
+}
+
 # Application URIs
 variable "identifier_uris" {
   description = "A list of user-defined URI(s) that uniquely identify the application"
@@ -210,6 +228,24 @@ variable "preferred_single_sign_on_mode" {
   }
 }
 
+variable "enterprise_app" {
+  description = "Whether this is an enterprise application (appears in My Apps)"
+  type        = bool
+  default     = true
+}
+
+variable "gallery_app" {
+  description = "Whether this application is from the Azure AD app gallery"
+  type        = bool
+  default     = false
+}
+
+variable "hide_app" {
+  description = "Whether to hide this application from My Apps and Office 365 app launcher"
+  type        = bool
+  default     = false
+}
+
 # SAML configuration
 variable "saml_single_sign_on" {
   description = "SAML single sign-on configuration"
@@ -285,8 +321,8 @@ variable "resource_service_principal_object_id" {
 
 # App role assignments
 variable "app_role_assignments" {
-  description = "App role assignments for the service principal"
-  type = list(object({
+  description = "App role assignments for the service principal. Map keys are arbitrary identifiers."
+  type = map(object({
     app_role_id        = string
     resource_object_id = string
   }))
