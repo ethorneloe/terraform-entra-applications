@@ -4,32 +4,46 @@
 
 # Pattern-based security defaults
 # When app_pattern is set, these defaults are applied for security best practices
+# Aligned with Microsoft Entra ID application types:
+# https://learn.microsoft.com/en-us/entra/identity-platform/v2-app-types
 locals {
-  # Define security defaults for each authentication pattern
+  # Define security defaults for each application type
   pattern_defaults = var.app_pattern != null ? {
-    oidc_web = {
-      implicit_grant_enabled     = false # Force authorization code + PKCE
-      sign_in_audience          = "AzureADMyOrg"
-      preferred_sso_mode        = "oidc"
+    web_app = {
+      implicit_grant_enabled       = false # Force authorization code + PKCE
+      sign_in_audience             = "AzureADMyOrg"
+      preferred_sso_mode           = "oidc"
       app_role_assignment_required = false
     }
-    oidc_spa = {
-      implicit_grant_enabled     = false # SPAs should use auth code + PKCE
-      sign_in_audience          = "AzureADMyOrg"
-      preferred_sso_mode        = "oidc"
+    spa = {
+      implicit_grant_enabled       = false # SPAs must use auth code + PKCE (RFC 8252)
+      sign_in_audience             = "AzureADMyOrg"
+      preferred_sso_mode           = "oidc"
       app_role_assignment_required = false
     }
-    daemon = {
-      implicit_grant_enabled     = false # Daemons use client credentials
-      sign_in_audience          = "AzureADMyOrg"
-      preferred_sso_mode        = null
+    service = {
+      implicit_grant_enabled       = false # Services use client credentials flow
+      sign_in_audience             = "AzureADMyOrg"
+      preferred_sso_mode           = null
+      app_role_assignment_required = false
+    }
+    mobile = {
+      implicit_grant_enabled       = false # Mobile apps use auth code + PKCE
+      sign_in_audience             = "AzureADMyOrg"
+      preferred_sso_mode           = "oidc"
       app_role_assignment_required = false
     }
     saml = {
-      implicit_grant_enabled     = false
-      sign_in_audience          = "AzureADMyOrg"
-      preferred_sso_mode        = "saml"
+      implicit_grant_enabled       = false
+      sign_in_audience             = "AzureADMyOrg"
+      preferred_sso_mode           = "saml"
       app_role_assignment_required = true # SAML apps typically require assignment
+    }
+    multitenant = {
+      implicit_grant_enabled       = false # Multi-tenant SaaS apps
+      sign_in_audience             = "AzureADMultipleOrgs"
+      preferred_sso_mode           = "oidc"
+      app_role_assignment_required = false
     }
   }[var.app_pattern] : null
 
@@ -53,9 +67,13 @@ locals {
 
 # Create or reference existing application registration
 resource "azuread_application" "app" {
-  display_name            = var.display_name
-  description             = var.description
-  sign_in_audience        = var.sign_in_audience
+  display_name = var.display_name
+  description  = var.description
+  sign_in_audience = (
+    local.pattern_defaults != null && local.pattern_defaults.sign_in_audience != null ?
+    local.pattern_defaults.sign_in_audience :
+    var.sign_in_audience
+  )
   prevent_duplicate_names = var.prevent_duplicate_names
   owners                  = var.app_owners
 

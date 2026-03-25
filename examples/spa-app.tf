@@ -1,5 +1,8 @@
 # Example: Single Page Application (SPA)
 #
+# Microsoft terminology: "Single-page apps" (public client)
+# https://learn.microsoft.com/en-us/entra/identity-platform/v2-app-types#single-page-apps-javascript
+#
 # Use case: JavaScript-heavy apps running entirely in browser
 # Auth flow: Authorization Code + PKCE (OAuth 2.0)
 # No client secret (public client - can't keep secrets secure)
@@ -16,7 +19,7 @@ module "dashboard_spa" {
   # - Enforces PKCE (SPAs are public clients)
   # - Disables implicit grant flow (deprecated for SPAs)
   # - No client secret (SPAs can't keep secrets)
-  app_pattern  = "oidc_spa"
+  app_pattern  = "spa"
   display_name = "Analytics Dashboard"
   description  = "Real-time analytics dashboard (React SPA)"
 

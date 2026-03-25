@@ -4,12 +4,16 @@ This directory contains complete examples for each authentication pattern suppor
 
 ## 📋 Quick Reference
 
-| Pattern | Use Case | Example File | Auth Flow |
-|---------|----------|--------------|-----------|
-| **daemon** | Background services, APIs, batch jobs | [daemon-app.tf](./daemon-app.tf) | Client Credentials |
-| **oidc_web** | Traditional web apps (server-side) | [web-app.tf](./web-app.tf) | Authorization Code + PKCE |
-| **oidc_spa** | Single-page apps (React, Vue, Angular) | [spa-app.tf](./spa-app.tf) | Authorization Code + PKCE |
-| **saml** | Enterprise SSO, SaaS integration | [saml-app.tf](./saml-app.tf) | SAML 2.0 |
+Aligned with [Microsoft Entra ID application types](https://learn.microsoft.com/en-us/entra/identity-platform/v2-app-types)
+
+| Pattern | Microsoft Term | Use Case | Example File | Auth Flow |
+|---------|----------------|----------|--------------|-----------|
+| **web_app** | Web apps | Traditional web apps (server-side) | [web-app.tf](./web-app.tf) | Authorization Code + PKCE |
+| **spa** | Single-page apps | JavaScript apps (React, Vue, Angular) | [spa-app.tf](./spa-app.tf) | Authorization Code + PKCE |
+| **mobile** | Mobile and desktop apps | iOS, Android, native apps | [mobile-app.tf](./mobile-app.tf) | Authorization Code + PKCE |
+| **service** | Services and daemons | Background services, APIs | [service-app.tf](./service-app.tf) | Client Credentials |
+| **saml** | SAML apps | Enterprise SSO, legacy integration | [saml-app.tf](./saml-app.tf) | SAML 2.0 |
+| **multitenant** | Multi-tenant apps | SaaS platforms, ISV apps | [multitenant-app.tf](./multitenant-app.tf) | Authorization Code + PKCE |
 
 ---
 
@@ -32,7 +36,7 @@ This directory contains complete examples for each authentication pattern suppor
 module "api_service" {
   source = "../modules/sso-application"
 
-  app_pattern  = "daemon"
+  app_pattern  = "service"
   display_name = "Backend API Service"
 
   # No redirect URIs
@@ -56,7 +60,7 @@ module "api_service" {
 - Grant least-privilege permissions
 - Monitor API usage for anomalies
 
-**See:** [daemon-app.tf](./daemon-app.tf) for complete example
+**See:** [service-app.tf](./service-app.tf) for complete example
 
 ---
 
@@ -78,7 +82,7 @@ module "api_service" {
 module "employee_portal" {
   source = "../modules/sso-application"
 
-  app_pattern  = "oidc_web"
+  app_pattern  = "web_app"
   display_name = "Employee Portal"
 
   web_redirect_uris = [
@@ -126,7 +130,7 @@ module "employee_portal" {
 module "dashboard_spa" {
   source = "../modules/sso-application"
 
-  app_pattern  = "oidc_spa"
+  app_pattern  = "spa"
   display_name = "Analytics Dashboard"
 
   spa_redirect_uris = [
@@ -250,27 +254,36 @@ module "salesforce_sso" {
 ### Decision Tree
 
 ```
-Is there a user logging in?
-├─ NO → daemon (Client Credentials)
+Who will use this application?
+├─ Multiple Azure AD organizations → multitenant
 │
-└─ YES → What kind of application?
-    ├─ Server-side web app → oidc_web
-    ├─ Client-side SPA (React/Vue/Angular) → oidc_spa
-    └─ Enterprise SaaS or legacy → saml
+├─ No user (service/automation) → service (Client Credentials)
+│
+└─ Users from my organization → What kind of application?
+    ├─ Server-side web app (ASP.NET, Node.js, Django) → web_app
+    ├─ Client-side SPA (React, Vue, Angular) → spa
+    ├─ Mobile or desktop app (iOS, Android, Electron) → mobile
+    ├─ Enterprise SSO (Salesforce, ServiceNow) → saml
+    └─ Legacy SAML integration → saml
 ```
 
 ### Still not sure?
 
 | If you're building... | Use this pattern |
 |----------------------|------------------|
-| A React dashboard | **oidc_spa** |
-| An ASP.NET Core web app | **oidc_web** |
-| A background data sync job | **daemon** |
+| Multi-tenant SaaS platform | **multitenant** |
+| iOS/Android mobile app | **mobile** |
+| Electron desktop app | **mobile** |
+| React/Vue/Angular dashboard | **spa** |
+| ASP.NET Core web app | **web_app** |
+| Background data sync job | **service** |
 | Integration with Salesforce | **saml** |
-| A REST API (no UI) | **daemon** |
-| A Node.js web app | **oidc_web** |
-| A Vue.js PWA | **oidc_spa** |
-| GitHub Actions workflow | **daemon** (with federated identity) |
+| REST API (no UI) | **service** |
+| Node.js/Django/Flask web app | **web_app** |
+| Progressive Web App (PWA) | **spa** |
+| GitHub Actions workflow | **service** (with federated identity) |
+| .NET MAUI app | **mobile** |
+| App sold in Azure Marketplace | **multitenant** |
 
 ---
 
@@ -287,7 +300,7 @@ Is there a user logging in?
 - Ensure you're using the correct redirect URI for the environment
 
 ### "AADSTS65001: The user or administrator has not consented"
-- Admin consent required for application permissions (daemon apps)
+- Admin consent required for application permissions (service apps)
 - Use `azuread_app_role_assignment` resource
 - Or grant consent via Azure Portal
 

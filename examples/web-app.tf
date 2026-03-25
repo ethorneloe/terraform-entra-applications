@@ -1,7 +1,10 @@
-# Example: Web Application (OIDC/OAuth 2.0)
+# Example: Web Application
+#
+# Microsoft terminology: "Web apps" (confidential client)
+# https://learn.microsoft.com/en-us/entra/identity-platform/v2-app-types#web-apps
 #
 # Use case: Traditional web applications with server-side code
-# Auth flow: Authorization Code + PKCE (OAuth 2.0)
+# Auth flow: Authorization Code + PKCE (OAuth 2.0 / OpenID Connect)
 # User logs in via browser, app gets tokens on behalf of user
 #
 # Examples:
@@ -17,7 +20,7 @@ module "employee_portal" {
   # - Disables implicit grant flow (forces PKCE)
   # - Sets preferred SSO mode to "oidc"
   # - Configures secure defaults
-  app_pattern  = "oidc_web"
+  app_pattern  = "web_app"
   display_name = "Employee Portal"
   description  = "Internal employee self-service portal"
 

@@ -1,13 +1,24 @@
 # Variables for SSO Application Module
 
 # Application pattern (recommended for best practices)
+# Aligned with Microsoft identity platform terminology:
+# https://learn.microsoft.com/en-us/entra/identity-platform/v2-app-types
 variable "app_pattern" {
-  description = "Application authentication pattern - applies security defaults. Options: oidc_web (web app with PKCE), oidc_spa (single-page app), daemon (service/API with no user interaction), saml (SAML SSO). Set to null for manual configuration."
+  description = <<-EOT
+    Application type - applies Microsoft-recommended security defaults:
+    - web_app: Web applications (confidential client with server-side code)
+    - spa: Single-page applications (public client, browser-based)
+    - service: Services/daemons (confidential client, no user interaction)
+    - mobile: Mobile and desktop apps (public client, native apps)
+    - saml: SAML-based enterprise SSO
+    - multitenant: Multi-tenant SaaS applications (any audience)
+    Set to null for manual configuration.
+  EOT
   type        = string
   default     = null
   validation {
-    condition     = var.app_pattern == null || contains(["oidc_web", "oidc_spa", "daemon", "saml"], var.app_pattern)
-    error_message = "Must be one of: oidc_web, oidc_spa, daemon, saml, or null for manual configuration"
+    condition     = var.app_pattern == null || contains(["web_app", "spa", "service", "mobile", "saml", "multitenant"], var.app_pattern)
+    error_message = "Must be one of: web_app, spa, service, mobile, saml, multitenant, or null for manual configuration"
   }
 }
 

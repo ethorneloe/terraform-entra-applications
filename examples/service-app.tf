@@ -1,24 +1,28 @@
-# Example: Daemon/Service Application
+# Example: Service / Daemon Application
+#
+# Microsoft terminology: "Daemons and server-side apps" (confidential client)
+# https://learn.microsoft.com/en-us/entra/identity-platform/v2-app-types#services-and-server-side-apps
 #
 # Use case: Background services, scheduled jobs, API-to-API communication
 # Auth flow: Client Credentials (OAuth 2.0)
-# No user interaction - service authenticates as itself
+# No user interaction - service authenticates as itself using its own identity
 #
 # Examples:
 # - Nightly data sync jobs
 # - Monitoring/alerting services
 # - Backend API services
 # - CI/CD pipelines (when not using Workload Identity Federation)
+# - Microservices calling other APIs
 
 module "monitoring_service" {
   source = "../modules/sso-application"
 
-  # Pattern auto-applies security defaults for daemon apps
-  app_pattern  = "daemon"
+  # Pattern auto-applies security defaults for service applications
+  app_pattern  = "service"
   display_name = "Monitoring Service"
   description  = "Background service for system monitoring and alerting"
 
-  # Daemon apps don't have redirect URIs (no user login)
+  # Service apps don't have redirect URIs (no user login)
   # web_redirect_uris = null
   # spa_redirect_uris = null
 
@@ -61,7 +65,7 @@ module "monitoring_service" {
 }
 
 # Admin consent for application permissions
-# Required for daemon apps to function
+# Required for service apps to function
 resource "azuread_app_role_assignment" "monitoring_service_graph" {
   app_role_id         = "df021288-bdef-4463-88db-98f22de89214" # User.Read.All
   principal_object_id = module.monitoring_service.service_principal_id
