@@ -9,7 +9,7 @@ module "web_api_example" {
   description      = "Example web API application with Microsoft Graph permissions"
   sign_in_audience = "AzureADMyOrg"
   app_owners       = var.app_owners
-  tags             = concat(["WebAPI", "Example"], [for k, v in local.common_tags : "${k}:${v}"])
+  tags             = concat(["WebAPI", "Example"], local.common_tag_list)
 
   # Application ID URI
   identifier_uris = ["api://example-web-api-${var.environment}"]
@@ -23,8 +23,7 @@ module "web_api_example" {
   # API permissions - Microsoft Graph
   required_resource_access = [
     {
-      # Microsoft Graph
-      resource_app_id = "00000003-0000-0000-c000-000000000000"
+      resource_app_id = local.microsoft_graph_app_id
       resource_access = [
         {
           # User.Read - Delegated permission
@@ -96,7 +95,7 @@ module "web_api_example" {
   # Admin consent (if enabled at environment level)
   enable_admin_consent                 = var.enable_admin_consent
   admin_consent_scope                  = ["User.Read"]
-  resource_service_principal_object_id = data.azuread_service_principal.microsoft_graph.object_id
+  resource_service_principal_object_id = local.microsoft_graph_sp_object_id
 
   # Optional claims
   optional_claims = {

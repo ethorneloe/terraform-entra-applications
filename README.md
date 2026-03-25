@@ -31,18 +31,29 @@ A comprehensive Terraform module for managing Single Sign-On (SSO) applications 
 ├── app_spa_example.tf              # Example: Single Page Application
 ├── app_daemon_service.tf           # Example: Daemon/background service
 ├── app_workload_identity.tf        # Example: Workload identity federation
+├── role_assignments.tf             # Commented examples: RBAC/directory role assignments
 ├── modules/
 │   └── sso-application/            # Reusable SSO application module
 │       ├── main.tf
 │       ├── variables.tf
 │       └── outputs.tf
-└── env/
-    ├── dev/
-    │   └── dev.tfvars              # Development environment variables
-    ├── test/
-    │   └── test.tfvars             # Test environment variables
-    └── prod/
-        └── prod.tfvars             # Production environment variables
+├── env/
+│   ├── dev/
+│   │   ├── dev.tfvars              # Development environment variables
+│   │   └── dev.tfbackend           # Development backend configuration
+│   ├── test/
+│   │   ├── test.tfvars             # Test environment variables
+│   │   └── test.tfbackend          # Test backend configuration
+│   └── prod/
+│       ├── prod.tfvars             # Production environment variables
+│       └── prod.tfbackend          # Production backend configuration
+└── .github/
+    └── workflows/
+        ├── ci-terraform-validate.yml           # CI: fmt + validate (no credentials needed)
+        ├── terraform-analyze-and-plan.yml      # Reusable: init, validate, plan, post to PR
+        ├── terraform-apply.yml                 # Reusable: apply saved plan
+        ├── terraform-orchestration.yml         # Reusable: orchestrates plan + optional apply
+        └── trigger-terraform-orchestration.yml # Entry point: routes events to environments
 ```
 
 ## Prerequisites
@@ -96,7 +107,7 @@ cp env/dev/dev.tfvars env/dev/dev.tfvars.local
 ```
 
 Key variables to configure:
-- `tenant_domain`: Your Entra ID tenant domain
+- `tenant_domain`: Your Entra ID tenant domain — **must not be left as the placeholder `yourcompany.onmicrosoft.com`**; Terraform will refuse to apply with that value
 - `app_owners`: List of user object IDs or UPNs who will own the applications
 - `enable_admin_consent`: Whether to automatically grant admin consent
 
@@ -204,6 +215,14 @@ module "my_service" {
   create_client_secret   = true
   password_rotation_days = 180
 
+  # Grant admin consent for application permissions via app_role_assignments
+  app_role_assignments = {
+    "msgraph-user-read-all" = {
+      app_role_id        = "df021288-bdef-4463-88db-98f22de89214" # User.Read.All
+      resource_object_id = local.microsoft_graph_sp_object_id
+    }
+  }
+
   # For enhanced security, use certificate authentication
   # certificate_value = file("path/to/certificate.pem")
 }
@@ -273,36 +292,40 @@ For a complete list, see [Microsoft Graph permissions reference](https://learn.m
 
 ## Admin Consent
 
-### Delegated Permissions
+### Delegated Permissions (type = "Scope")
 
-Delegated permissions can be granted automatically via the module:
+Delegated permissions are granted via `enable_admin_consent` + `admin_consent_scope`:
 
 ```hcl
 enable_admin_consent                 = true
 admin_consent_scope                  = ["User.Read", "Mail.Read"]
-resource_service_principal_object_id = data.azuread_service_principal.microsoft_graph.object_id
+resource_service_principal_object_id = local.microsoft_graph_sp_object_id
 ```
 
-### Application Permissions
+`resource_service_principal_object_id` is **required** whenever `enable_admin_consent = true`.
 
-Application permissions require admin consent via the Azure Portal or PowerShell:
+### Application Permissions (type = "Role")
 
-**Via Azure Portal:**
-1. Navigate to Azure Portal > Entra ID > App registrations
-2. Select your application
-3. Go to API permissions
-4. Click "Grant admin consent for [your tenant]"
+Application permissions are granted via `app_role_assignments`. Each entry creates
+an `azuread_app_role_assignment` which is the Terraform-native equivalent of clicking
+"Grant admin consent" in the Azure Portal for Role-type permissions.
 
-**Via PowerShell:**
-```powershell
-Connect-MgGraph -Scopes "Application.ReadWrite.All", "AppRoleAssignment.ReadWrite.All"
-
-# Get the service principal
-$sp = Get-MgServicePrincipal -Filter "displayName eq 'Your App Name'"
-
-# Grant admin consent for application permissions
-# (This requires the specific app role assignment creation)
+```hcl
+app_role_assignments = {
+  # Key is a stable, human-readable identifier — changing the key will recreate the assignment.
+  "msgraph-user-read-all" = {
+    app_role_id        = "df021288-bdef-4463-88db-98f22de89214" # User.Read.All
+    resource_object_id = local.microsoft_graph_sp_object_id
+  }
+  "msgraph-mail-send" = {
+    app_role_id        = "b633e1c5-b582-4048-a93e-9f11b44c7e96" # Mail.Send
+    resource_object_id = local.microsoft_graph_sp_object_id
+  }
+}
 ```
+
+The `app_role_id` must match the GUID listed in `required_resource_access` for the same permission.
+See `app_daemon_service.tf` for a complete working example.
 
 ## Outputs
 
@@ -321,6 +344,93 @@ Common outputs:
 - `service_principal_id`: Service principal object ID
 - `client_secret`: Client secret (sensitive)
 - `certificate_thumbprint`: Certificate thumbprint (if using cert auth)
+
+## CI/CD Pipelines
+
+### Workflow Overview
+
+| Workflow | Trigger | Purpose |
+|----------|---------|---------|
+| `ci-terraform-validate.yml` | Push / PR on any `.tf` or `modules/**` change | fmt check + `terraform validate` — no Azure credentials required |
+| `trigger-terraform-orchestration.yml` | Push / PR on `.tf`, `modules/**`, `env/**` | Routes events to the correct environment pipeline |
+| `terraform-orchestration.yml` | Called by trigger workflow | Orchestrates plan and optional apply |
+| `terraform-analyze-and-plan.yml` | Called by orchestration | init, validate, fmt, optional checkov scan, plan, post to PR |
+| `terraform-apply.yml` | Called by orchestration | Downloads saved plan artifact and applies it |
+
+### Environment Strategy
+
+| Event | Branch | Environment | Apply? |
+|-------|--------|-------------|--------|
+| `push` | any non-main | `dev` | Yes (auto) |
+| `pull_request` | targeting `main` | `test` | Yes (auto) |
+| `push` | `main` | `prod` | Yes (requires approval gate) |
+
+### Setup
+
+#### 1. Create GitHub Environments
+
+In **Settings > Environments**, create three environments: `dev`, `test`, `prod`.
+
+For `prod`, add required reviewers to enforce human approval before apply.
+
+#### 2. Configure OIDC Federated Credentials
+
+For each environment, create an Azure App Registration with a federated credential:
+
+```bash
+# Example for the prod environment
+az ad app federated-credential create \
+  --id <app-object-id> \
+  --parameters '{
+    "name": "github-prod",
+    "issuer": "https://token.actions.githubusercontent.com",
+    "subject": "repo:your-org/terraform-entra-applications:environment:prod",
+    "audiences": ["api://AzureADTokenExchange"]
+  }'
+```
+
+Assign the app registration the following Entra ID roles:
+- **Application Administrator** — to create and manage app registrations
+- **Cloud Application Administrator** — to grant admin consent
+
+#### 3. Add GitHub Secrets (per Environment)
+
+| Secret | Description |
+|--------|-------------|
+| `AZURE_CLIENT_ID` | App registration client (application) ID |
+| `AZURE_TENANT_ID` | Entra ID tenant ID |
+| `AZURE_SUBSCRIPTION_ID` | Azure subscription ID (used for the storage backend) |
+| `TF_LOG_LEVEL` | Optional: `DEBUG`, `INFO`, `WARN`, or `ERROR` |
+
+#### 4. Configure Backend Files
+
+Fill in `env/<env>/<env>.tfbackend` for each environment:
+
+```hcl
+resource_group_name  = "terraform-state-rg"
+storage_account_name = "tfstatexxxxxxxx"
+container_name       = "tfstate"
+key                  = "entra-applications-prod.tfstate"
+```
+
+The storage account must allow OIDC-authenticated access (`ARM_USE_AZUREAD = true` is already set in the workflows).
+
+#### 5. Security Analysis (checkov)
+
+Security scanning with [checkov](https://www.checkov.io/) runs automatically on `test` and `prod` plans.
+SARIF results are uploaded to GitHub's Security tab. No additional setup is required — the action runs from the public registry.
+
+### Local Development
+
+```bash
+# Validate without a real backend
+terraform init -backend=false
+terraform validate
+
+# Full plan for dev
+terraform init -backend-config=./env/dev/dev.tfbackend
+terraform plan -var-file=./env/dev/dev.tfvars
+```
 
 ## Security Best Practices
 

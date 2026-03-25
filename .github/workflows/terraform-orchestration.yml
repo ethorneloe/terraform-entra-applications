@@ -1,0 +1,98 @@
+# Purpose:
+#   - To orchestrate Terraform plan and optional apply steps in a single reusable workflow.
+#   - Separating plan from apply allows GitHub Environment protection rules to gate the apply,
+#     requiring human approval before any Entra ID application changes are deployed.
+#
+# Jobs:
+#   A (analyze-and-plan): Validates, formats-checks, optionally scans, and plans the configuration.
+#   B (apply):            Applies the saved plan. Only runs when run_tf_apply is true and Job A passes.
+#
+# Usage:
+#   - Call this workflow from trigger-terraform-orchestration.yml using workflow_call.
+#   - Set run_tf_apply: true to deploy after planning; leave false for plan-only (PR review) runs.
+
+name: Terraform Orchestration
+
+permissions:
+  id-token: write        # Needed for OIDC authentication
+  contents: read         # Needed for the checkout action
+  actions: read          # Needed for artifact operations
+  security-events: write # Needed for uploading SARIF results
+  pull-requests: write   # Needed to post plan output as PR comment
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: "GitHub Environment"
+        required: true
+        type: string
+      working_directory:
+        description: "Working directory for Terraform configurations"
+        required: true
+        type: string
+      tfbackend_filepath:
+        description: "Path to the Terraform backend configuration file"
+        required: true
+        type: string
+      tfvars_filepath:
+        description: "Path to the Terraform variables file"
+        required: false
+        type: string
+        default: ""
+      enable_security_analysis:
+        description: "Toggle the checkov security analysis step"
+        required: true
+        type: boolean
+      terraform_version:
+        description: "Version of Terraform to use"
+        required: false
+        type: string
+        default: ""
+      plan_filename:
+        description: "Name of the Terraform plan file"
+        required: false
+        type: string
+        default: "tfplan"
+      artifact_basename:
+        description: "Base name for plan artifacts"
+        required: false
+        type: string
+        default: "tfplan-artifact"
+      run_tf_apply:
+        description: "Whether to run terraform apply after the plan (requires environment approval gate)"
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  # Job A: Validate, format-check, optionally scan, and generate the plan
+  A:
+    uses: ./.github/workflows/terraform-analyze-and-plan.yml
+    secrets: inherit
+    with:
+      environment: ${{ inputs.environment }}
+      plan_filename: ${{ inputs.plan_filename }}
+      working_directory: ${{ inputs.working_directory }}
+      terraform_version: ${{ inputs.terraform_version }}
+      enable_security_analysis: ${{ inputs.enable_security_analysis }}
+      artifact_basename: ${{ inputs.artifact_basename }}
+      tfbackend_filepath: ${{ inputs.tfbackend_filepath }}
+      tfvars_filepath: ${{ inputs.tfvars_filepath }}
+
+  # Job B: Apply the saved plan
+  # The plan and apply jobs are separated to allow for approval through environment protection rules.
+  # Configure a required reviewer on the GitHub Environment to gate production deployments.
+  B:
+    needs: A
+    if: ${{ inputs.run_tf_apply == true }}
+    uses: ./.github/workflows/terraform-apply.yml
+    secrets: inherit
+    with:
+      environment: ${{ inputs.environment }}
+      plan_filename: ${{ inputs.plan_filename }}
+      working_directory: ${{ inputs.working_directory }}
+      terraform_version: ${{ inputs.terraform_version }}
+      artifact_basename: ${{ inputs.artifact_basename }}
+      tfbackend_filepath: ${{ inputs.tfbackend_filepath }}
+      tfvars_filepath: ${{ inputs.tfvars_filepath }}

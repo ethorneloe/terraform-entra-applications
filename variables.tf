@@ -12,6 +12,10 @@ variable "environment" {
 variable "tenant_domain" {
   description = "The primary domain name for the Entra ID tenant (e.g., contoso.onmicrosoft.com)"
   type        = string
+  validation {
+    condition     = var.tenant_domain != "yourcompany.onmicrosoft.com" && length(var.tenant_domain) > 0
+    error_message = "tenant_domain must be set to your actual Entra ID tenant domain, not the placeholder value."
+  }
 }
 
 variable "app_owners" {

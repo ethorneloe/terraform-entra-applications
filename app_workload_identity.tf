@@ -9,13 +9,12 @@ module "github_actions_identity" {
   description      = "Federated identity for GitHub Actions workflows using OIDC"
   sign_in_audience = "AzureADMyOrg"
   app_owners       = var.app_owners
-  tags             = concat(["WorkloadIdentity", "GitHubActions", "Example"], [for k, v in local.common_tags : "${k}:${v}"])
+  tags             = concat(["WorkloadIdentity", "GitHubActions", "Example"], local.common_tag_list)
 
   # API permissions - Adjust based on what GitHub Actions needs to do
   required_resource_access = [
     {
-      # Microsoft Graph
-      resource_app_id = "00000003-0000-0000-c000-000000000000"
+      resource_app_id = local.microsoft_graph_app_id
       resource_access = [
         {
           # Application.Read.All - Application permission
@@ -67,13 +66,12 @@ module "aks_workload_identity" {
   description      = "Federated identity for AKS workloads using OIDC"
   sign_in_audience = "AzureADMyOrg"
   app_owners       = var.app_owners
-  tags             = concat(["WorkloadIdentity", "AKS", "Example"], [for k, v in local.common_tags : "${k}:${v}"])
+  tags             = concat(["WorkloadIdentity", "AKS", "Example"], local.common_tag_list)
 
   # API permissions - Adjust based on workload requirements
   required_resource_access = [
     {
-      # Microsoft Graph
-      resource_app_id = "00000003-0000-0000-c000-000000000000"
+      resource_app_id = local.microsoft_graph_app_id
       resource_access = [
         {
           # User.Read.All - Application permission

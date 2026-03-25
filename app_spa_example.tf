@@ -9,7 +9,7 @@ module "spa_example" {
   description      = "Example single page application using PKCE authentication flow"
   sign_in_audience = "AzureADMyOrg"
   app_owners       = var.app_owners
-  tags             = concat(["SPA", "Example"], [for k, v in local.common_tags : "${k}:${v}"])
+  tags             = concat(["SPA", "Example"], local.common_tag_list)
 
   # SPA redirect URIs (uses PKCE, no client secret needed)
   spa_redirect_uris = [
@@ -22,8 +22,7 @@ module "spa_example" {
   # API permissions - Microsoft Graph delegated permissions only
   required_resource_access = [
     {
-      # Microsoft Graph
-      resource_app_id = "00000003-0000-0000-c000-000000000000"
+      resource_app_id = local.microsoft_graph_app_id
       resource_access = [
         {
           # User.Read - Delegated permission
@@ -54,25 +53,22 @@ module "spa_example" {
   # Admin consent for delegated permissions
   enable_admin_consent                 = var.enable_admin_consent
   admin_consent_scope                  = ["User.Read", "Mail.Read", "Calendars.Read"]
-  resource_service_principal_object_id = data.azuread_service_principal.microsoft_graph.object_id
+  resource_service_principal_object_id = local.microsoft_graph_sp_object_id
 
   # Optional claims for enhanced security
   optional_claims = {
     id_token = [
       {
-        name                  = "email"
-        essential             = true
-        additional_properties = []
+        name      = "email"
+        essential = true
       },
       {
-        name                  = "family_name"
-        essential             = false
-        additional_properties = []
+        name      = "family_name"
+        essential = false
       },
       {
-        name                  = "given_name"
-        essential             = false
-        additional_properties = []
+        name      = "given_name"
+        essential = false
       }
     ]
     access_token = [

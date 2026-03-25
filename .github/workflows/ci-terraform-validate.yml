@@ -1,0 +1,168 @@
+# Purpose:
+#   - Lightweight CI validation for the sso-application module and root configuration.
+#   - Runs on every push/PR that touches Terraform or module files to catch syntax,
+#     formatting, and schema errors early without requiring live Azure credentials.
+#
+# Steps:
+#   1. Format check (root + module)
+#   2. Init + Validate the sso-application module in isolation
+#   3. Init + Validate the root configuration
+#   4. Post a results summary to the pull request (if triggered by PR)
+#
+# Notes:
+#   - terraform validate does not require variable values or a real backend;
+#     -backend=false skips remote state and lets validation run credential-free.
+#   - For full integration testing (plan/apply against a real tenant) use the
+#     trigger-terraform-orchestration.yml workflow with the dev environment.
+
+name: CI Terraform Validate
+
+on:
+  push:
+    branches-ignore:
+      - main
+    paths:
+      - 'modules/**'
+      - '*.tf'
+      - '.github/workflows/ci-terraform-validate.yml'
+  pull_request:
+    paths:
+      - 'modules/**'
+      - '*.tf'
+      - '.github/workflows/ci-terraform-validate.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+env:
+  TF_VERSION: "1.9"
+
+jobs:
+  validate:
+    name: Validate Terraform Configuration
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      # ── Format ─────────────────────────────────────────────────────────────
+
+      - name: Terraform fmt (root)
+        id: fmt_root
+        run: terraform fmt -check -recursive
+        continue-on-error: true
+
+      - name: Terraform fmt (module)
+        id: fmt_module
+        working-directory: modules/sso-application
+        run: terraform fmt -check -recursive
+        continue-on-error: true
+
+      # ── Module validation ──────────────────────────────────────────────────
+
+      - name: Terraform Init (module)
+        id: init_module
+        working-directory: modules/sso-application
+        run: terraform init -backend=false
+
+      - name: Terraform Validate (module)
+        id: validate_module
+        working-directory: modules/sso-application
+        run: terraform validate -no-color
+
+      # ── Root configuration validation ──────────────────────────────────────
+
+      - name: Terraform Init (root)
+        id: init_root
+        run: terraform init -backend=false
+
+      - name: Terraform Validate (root)
+        id: validate_root
+        run: terraform validate -no-color
+
+      # ── PR comment ─────────────────────────────────────────────────────────
+
+      - name: Post Validation Results to Pull Request
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const icon = (outcome) => outcome === 'success' ? '✅' : outcome === 'skipped' ? '⏭️' : '❌';
+
+            const fmtRoot     = '${{ steps.fmt_root.outcome }}';
+            const fmtModule   = '${{ steps.fmt_module.outcome }}';
+            const initModule  = '${{ steps.init_module.outcome }}';
+            const valModule   = '${{ steps.validate_module.outcome }}';
+            const initRoot    = '${{ steps.init_root.outcome }}';
+            const valRoot     = '${{ steps.validate_root.outcome }}';
+
+            const allPassed = [fmtRoot, fmtModule, initModule, valModule, initRoot, valRoot]
+              .every(o => o === 'success');
+
+            const output = `#### ${allPassed ? '✅' : '❌'} CI Terraform Validate
+
+            | Check | Result |
+            |-------|--------|
+            | fmt (root) | ${icon(fmtRoot)} \`${fmtRoot}\` |
+            | fmt (module) | ${icon(fmtModule)} \`${fmtModule}\` |
+            | init (module) | ${icon(initModule)} \`${initModule}\` |
+            | validate (module) | ${icon(valModule)} \`${valModule}\` |
+            | init (root) | ${icon(initRoot)} \`${initRoot}\` |
+            | validate (root) | ${icon(valRoot)} \`${valRoot}\` |
+
+            ${!allPassed ? '> **Some checks failed.** Review the workflow run for details.' : ''}
+
+            *Pusher: @${{ github.actor }}, Action: \`${{ github.event_name }}\`*`;
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const botComment = comments.find(c =>
+              c.user.type === 'Bot' && c.body.includes('CI Terraform Validate')
+            );
+
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: output
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: output
+              });
+            }
+
+      - name: Validation Summary
+        if: always()
+        run: |
+          echo "=== CI Validation Summary ==="
+          echo "fmt (root):      ${{ steps.fmt_root.outcome }}"
+          echo "fmt (module):    ${{ steps.fmt_module.outcome }}"
+          echo "init (module):   ${{ steps.init_module.outcome }}"
+          echo "validate (module): ${{ steps.validate_module.outcome }}"
+          echo "init (root):     ${{ steps.init_root.outcome }}"
+          echo "validate (root): ${{ steps.validate_root.outcome }}"
+
+          if [[ "${{ steps.validate_module.outcome }}" != "success" || "${{ steps.validate_root.outcome }}" != "success" || "${{ steps.init_module.outcome }}" != "success" || "${{ steps.init_root.outcome }}" != "success" ]]; then
+            echo "❌ Validation failed!"
+            exit 1
+          else
+            echo "✅ All validation checks passed!"
+          fi

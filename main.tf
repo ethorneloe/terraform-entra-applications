@@ -5,6 +5,7 @@
 data "azuread_client_config" "current" {}
 
 # Data source for Microsoft Graph service principal
+# The well-known client ID for Microsoft Graph is stable across all tenants.
 data "azuread_service_principal" "microsoft_graph" {
   client_id = "00000003-0000-0000-c000-000000000000"
 }
@@ -14,7 +15,14 @@ locals {
   # Common metadata
   tenant_id = data.azuread_client_config.current.tenant_id
 
-  # Common tags to apply to all resources
+  # Microsoft Graph - centralised so all app files reference these locals
+  # instead of repeating the hardcoded GUIDs.
+  microsoft_graph_app_id       = "00000003-0000-0000-c000-000000000000"
+  microsoft_graph_sp_object_id = data.azuread_service_principal.microsoft_graph.object_id
+
+  # Common tags applied to every resource.
+  # The azuread provider expects tags as a list of strings; the conventional
+  # format is "Key:Value" which is what the for-expression below produces.
   common_tags = merge(
     {
       Environment = var.environment
@@ -24,17 +32,8 @@ locals {
     var.tags
   )
 
-  # Common redirect URIs for SSO applications
-  common_redirect_uris = {
-    web = [
-      "https://login.microsoftonline.com/common/oauth2/nativeclient",
-      "https://login.live.com/oauth20_desktop.srf"
-    ]
-    spa = [
-      "http://localhost:3000",
-      "http://localhost:8080"
-    ]
-  }
+  # Pre-built tag list derived from common_tags for direct use in module calls.
+  common_tag_list = [for k, v in local.common_tags : "${k}:${v}"]
 }
 
 # Individual SSO application configurations are defined in separate files:

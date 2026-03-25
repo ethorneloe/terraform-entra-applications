@@ -11,12 +11,7 @@ resource "azuread_application" "app" {
   owners                  = var.app_owners
 
   # Application ID URI (for API applications)
-  dynamic "identifier_uris" {
-    for_each = var.identifier_uris != null ? [1] : []
-    content {
-      uris = var.identifier_uris
-    }
-  }
+  identifier_uris = var.identifier_uris
 
   # Web application configuration
   dynamic "web" {
@@ -177,17 +172,28 @@ resource "azuread_application_password" "app_password" {
   rotate_when_changed   = var.rotate_secret_when_changed
 }
 
-# Admin consent for application permissions
+# Admin consent for delegated permissions (type = "Scope")
+# NOTE: This resource only handles delegated permissions. For application
+# permissions (type = "Role"), use app_role_assignments instead.
 resource "azuread_service_principal_delegated_permission_grant" "admin_consent" {
   count                                = var.enable_admin_consent && var.admin_consent_scope != null ? 1 : 0
   service_principal_object_id          = azuread_service_principal.app_sp.object_id
   resource_service_principal_object_id = var.resource_service_principal_object_id
   claim_values                         = var.admin_consent_scope
+
+  lifecycle {
+    precondition {
+      condition     = var.resource_service_principal_object_id != null
+      error_message = "resource_service_principal_object_id must be provided when enable_admin_consent is true and admin_consent_scope is set."
+    }
+  }
 }
 
 # App role assignments to the service principal
+# Also serves as the mechanism for granting admin consent to application
+# permissions (type = "Role"). Provide one entry per permission to consent.
 resource "azuread_app_role_assignment" "app_role_assignment" {
-  for_each            = var.app_role_assignments != null ? { for idx, v in var.app_role_assignments : idx => v } : {}
+  for_each            = var.app_role_assignments != null ? var.app_role_assignments : {}
   app_role_id         = each.value.app_role_id
   principal_object_id = azuread_service_principal.app_sp.object_id
   resource_object_id  = each.value.resource_object_id
@@ -203,8 +209,10 @@ resource "azuread_application_certificate" "app_cert" {
 }
 
 # Federation configuration for external identity providers
+# Keyed by display_name which must be unique per application; this ensures
+# that reordering entries in the list does not cause spurious replacements.
 resource "azuread_application_federated_identity_credential" "federated_cred" {
-  for_each       = var.federated_identity_credentials != null ? { for idx, v in var.federated_identity_credentials : idx => v } : {}
+  for_each       = var.federated_identity_credentials != null ? { for v in var.federated_identity_credentials : v.display_name => v } : {}
   application_id = azuread_application.app.id
   display_name   = each.value.display_name
   description    = each.value.description

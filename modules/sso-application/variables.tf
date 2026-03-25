@@ -285,8 +285,18 @@ variable "resource_service_principal_object_id" {
 
 # App role assignments
 variable "app_role_assignments" {
-  description = "App role assignments for the service principal"
-  type = list(object({
+  description = <<-EOT
+    Map of app role assignments for the service principal. The map key is a
+    stable, user-defined identifier (e.g. "msgraph-mail-send") used as the
+    Terraform resource key, so reordering entries will not cause replacements.
+
+    Use this to grant application permissions (admin consent for Role-type
+    permissions). For each Microsoft Graph or custom-API application permission
+    you want to pre-consent, add an entry whose app_role_id matches the
+    permission GUID and whose resource_object_id is the target API's service
+    principal object ID.
+  EOT
+  type = map(object({
     app_role_id        = string
     resource_object_id = string
   }))
