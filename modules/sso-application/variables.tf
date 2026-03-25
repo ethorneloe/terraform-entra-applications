@@ -194,6 +194,41 @@ variable "required_resource_access" {
   default = null
 }
 
+# ─────────────────────────────────────────────────────────────────────────────
+# PERMISSION HELPERS - Use friendly names instead of GUIDs
+# ─────────────────────────────────────────────────────────────────────────────
+# These are convenience variables for Microsoft Graph permissions.
+# Instead of looking up GUIDs, you can use permission names like:
+#   graph_delegated_permissions = ["User.Read", "Mail.Send"]
+#   graph_application_permissions = ["User.Read.All", "Directory.Read.All"]
+#
+# These will be automatically translated to GUIDs and merged with
+# required_resource_access. You can use both approaches together.
+# ─────────────────────────────────────────────────────────────────────────────
+
+variable "graph_delegated_permissions" {
+  description = <<-EOT
+    Microsoft Graph delegated permissions (Scopes) by name.
+    Use friendly names instead of GUIDs, e.g., ["User.Read", "Mail.Send"].
+    These are permissions requested on behalf of a signed-in user.
+    See: https://learn.microsoft.com/en-us/graph/permissions-reference
+  EOT
+  type        = list(string)
+  default     = []
+}
+
+variable "graph_application_permissions" {
+  description = <<-EOT
+    Microsoft Graph application permissions (Roles) by name.
+    Use friendly names instead of GUIDs, e.g., ["User.Read.All", "Directory.Read.All"].
+    These are permissions that allow the app to act on its own behalf (no user context).
+    Requires admin consent. For service/daemon apps.
+    See: https://learn.microsoft.com/en-us/graph/permissions-reference
+  EOT
+  type        = list(string)
+  default     = []
+}
+
 # Optional claims
 variable "optional_claims" {
   description = "Optional claims to include in tokens"

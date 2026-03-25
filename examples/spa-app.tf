@@ -32,23 +32,11 @@ module "dashboard_spa" {
   ]
 
   # Delegated permissions (user must be signed in)
-  required_resource_access = [{
-    resource_app_id = local.microsoft_graph_app_id
-    resource_access = [
-      {
-        id   = "e1fe6dd8-ba31-4d61-89e7-88639da4683d" # User.Read
-        type = "Scope"
-      },
-      {
-        id   = "37f7f235-527c-4136-accd-4a02d197296e" # openid
-        type = "Scope"
-      },
-      {
-        id   = "64a6cdd6-aab1-4aaf-94b8-3cc8405e90d0" # email
-        type = "Scope"
-      }
-    ]
-  }]
+  graph_delegated_permissions = [
+    "User.Read",
+    "openid",
+    "email"
+  ]
 
   # SPAs don't use client secrets (public clients)
   create_client_secret = false

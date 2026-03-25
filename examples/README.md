@@ -17,6 +17,41 @@ Aligned with [Microsoft Entra ID application types](https://learn.microsoft.com/
 
 ---
 
+## 🎯 **Permission Helpers** - No More GUIDs!
+
+Instead of looking up permission GUIDs, use friendly names:
+
+```hcl
+# ✅ NEW WAY - Permission helpers (easy!)
+graph_delegated_permissions = [
+  "User.Read",
+  "Mail.Send",
+  "Calendars.Read"
+]
+
+graph_application_permissions = [
+  "User.Read.All",
+  "Directory.Read.All"
+]
+
+# ❌ OLD WAY - Manual GUIDs (tedious)
+required_resource_access = [{
+  resource_app_id = "00000003-0000-0000-c000-000000000000"
+  resource_access = [
+    { id = "e1fe6dd8-ba31-4d61-89e7-88639da4683d", type = "Scope" }  # User.Read
+  ]
+}]
+```
+
+**Key points:**
+- `graph_delegated_permissions`: Delegated (on behalf of user) - type = "Scope"
+- `graph_application_permissions`: Application (app acts as itself) - type = "Role"
+- Both can be used together
+- Still works with manual `required_resource_access` for non-Graph APIs
+- See [Microsoft Graph permissions reference](https://learn.microsoft.com/en-us/graph/permissions-reference) for all available permissions
+
+---
+
 ## 🤖 Daemon / Service Applications
 
 **When to use:**
@@ -41,13 +76,11 @@ module "api_service" {
 
   # No redirect URIs
 
-  required_resource_access = [{
-    resource_app_id = local.microsoft_graph_app_id
-    resource_access = [{
-      id   = "df021288-bdef-4463-88db-98f22de89214" # User.Read.All
-      type = "Role" # Application permission
-    }]
-  }]
+  # Use permission helpers!
+  graph_application_permissions = [
+    "User.Read.All",
+    "Directory.Read.All"
+  ]
 
   # Prefer federated identity over secrets
   federated_identity_credentials = [...]
@@ -89,13 +122,11 @@ module "employee_portal" {
     "https://portal.example.com/signin-oidc"
   ]
 
-  required_resource_access = [{
-    resource_app_id = local.microsoft_graph_app_id
-    resource_access = [{
-      id   = "e1fe6dd8-ba31-4d61-89e7-88639da4683d" # User.Read
-      type = "Scope" # Delegated permission
-    }]
-  }]
+  # Use permission helpers!
+  graph_delegated_permissions = [
+    "User.Read",
+    "Mail.Send"
+  ]
 
   create_client_secret = true
 }

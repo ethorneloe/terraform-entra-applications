@@ -48,27 +48,12 @@ module "mobile_app" {
   ]
 
   # Delegated permissions (user consent)
-  required_resource_access = [{
-    resource_app_id = local.microsoft_graph_app_id
-    resource_access = [
-      {
-        id   = "e1fe6dd8-ba31-4d61-89e7-88639da4683d" # User.Read
-        type = "Scope"
-      },
-      {
-        id   = "37f7f235-527c-4136-accd-4a02d197296e" # openid
-        type = "Scope"
-      },
-      {
-        id   = "64a6cdd6-aab1-4aaf-94b8-3cc8405e90d0" # email
-        type = "Scope"
-      },
-      {
-        id   = "14dad69e-099b-42c9-810b-d002981feec1" # profile
-        type = "Scope"
-      }
-    ]
-  }]
+  graph_delegated_permissions = [
+    "User.Read",
+    "openid",
+    "email",
+    "profile"
+  ]
 
   # Optional claims for mobile apps
   optional_claims = {

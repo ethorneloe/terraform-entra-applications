@@ -27,20 +27,19 @@ module "monitoring_service" {
   # spa_redirect_uris = null
 
   # Application permissions (acts as itself, not on behalf of a user)
-  required_resource_access = [{
-    resource_app_id = local.microsoft_graph_app_id
-    resource_access = [
-      # Example: Application permissions (type = "Role")
-      {
-        id   = "df021288-bdef-4463-88db-98f22de89214" # User.Read.All
-        type = "Role"                                  # Application permission
-      },
-      {
-        id   = "b0afded3-3588-46d8-8b3d-9842eff778da" # AuditLog.Read.All
-        type = "Role"
-      }
-    ]
-  }]
+  # Use permission helpers - no more looking up GUIDs!
+  graph_application_permissions = [
+    "User.Read.All",    # Read all users' profiles
+    "AuditLog.Read.All" # Read audit logs
+  ]
+
+  # Alternative: Manual GUID specification (if you need non-Graph permissions)
+  # required_resource_access = [{
+  #   resource_app_id = local.microsoft_graph_app_id
+  #   resource_access = [
+  #     { id = "df021288-bdef-4463-88db-98f22de89214", type = "Role" }  # User.Read.All
+  #   ]
+  # }]
 
   # Modern alternative: Use Workload Identity Federation (no secrets!)
   # Recommended for GitHub Actions, Azure DevOps, Kubernetes
@@ -66,8 +65,15 @@ module "monitoring_service" {
 
 # Admin consent for application permissions
 # Required for service apps to function
-resource "azuread_app_role_assignment" "monitoring_service_graph" {
-  app_role_id         = "df021288-bdef-4463-88db-98f22de89214" # User.Read.All
+# Note: Use the Graph data source to look up permission IDs by name
+resource "azuread_app_role_assignment" "monitoring_service_user_read_all" {
+  app_role_id         = data.azuread_service_principal.microsoft_graph.app_role_ids["User.Read.All"]
+  principal_object_id = module.monitoring_service.service_principal_id
+  resource_object_id  = local.microsoft_graph_sp_object_id
+}
+
+resource "azuread_app_role_assignment" "monitoring_service_auditlog_read" {
+  app_role_id         = data.azuread_service_principal.microsoft_graph.app_role_ids["AuditLog.Read.All"]
   principal_object_id = module.monitoring_service.service_principal_id
   resource_object_id  = local.microsoft_graph_sp_object_id
 }

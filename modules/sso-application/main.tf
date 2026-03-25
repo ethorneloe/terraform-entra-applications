@@ -2,6 +2,17 @@
 # This module creates an Entra ID application registration with service principal,
 # API permissions, and optional admin consent
 
+# ═══════════════════════════════════════════════════════════════════════════
+# DATA SOURCES - Microsoft Graph Permissions Lookup
+# ═══════════════════════════════════════════════════════════════════════════
+# Look up Microsoft Graph service principal to translate permission names to GUIDs
+data "azuread_application_published_app_ids" "well_known" {}
+
+data "azuread_service_principal" "msgraph" {
+  client_id = data.azuread_application_published_app_ids.well_known.result.MicrosoftGraph
+}
+
+# ═══════════════════════════════════════════════════════════════════════════
 # Pattern-based security defaults
 # When app_pattern is set, these defaults are applied for security best practices
 # Aligned with Microsoft Entra ID application types:
@@ -63,6 +74,36 @@ locals {
   )
 
   validate_client_type = local.client_type_count <= 1 ? true : tobool("ERROR: Only one client type (web, spa, or public_client) should have redirect URIs configured")
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Permission Helpers - Build Graph permissions from friendly names
+  # ─────────────────────────────────────────────────────────────────────────
+  # Build Microsoft Graph resource_access block from helper variables
+  graph_permissions = length(var.graph_delegated_permissions) > 0 || length(var.graph_application_permissions) > 0 ? [{
+    resource_app_id = data.azuread_service_principal.msgraph.client_id
+    resource_access = concat(
+      # Delegated permissions (Scopes) - on behalf of user
+      [
+        for permission in var.graph_delegated_permissions : {
+          id   = data.azuread_service_principal.msgraph.oauth2_permission_scope_ids[permission]
+          type = "Scope"
+        }
+      ],
+      # Application permissions (Roles) - app acting on its own
+      [
+        for permission in var.graph_application_permissions : {
+          id   = data.azuread_service_principal.msgraph.app_role_ids[permission]
+          type = "Role"
+        }
+      ]
+    )
+  }] : []
+
+  # Merge Graph permissions from helpers with manually specified permissions
+  merged_required_resource_access = concat(
+    local.graph_permissions,
+    var.required_resource_access != null ? var.required_resource_access : []
+  )
 }
 
 # Create or reference existing application registration
@@ -149,8 +190,9 @@ resource "azuread_application" "app" {
   }
 
   # Required API permissions
+  # Uses merged permissions from both helper variables and manual config
   dynamic "required_resource_access" {
-    for_each = var.required_resource_access != null ? var.required_resource_access : []
+    for_each = local.merged_required_resource_access
     content {
       resource_app_id = required_resource_access.value.resource_app_id
 
